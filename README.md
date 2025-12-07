@@ -13,7 +13,7 @@ This repository serves as a **production-ready Go project skeleton** with built-
 cd ~/Projects
 
 # Run the initialization script
-bash <(curl -s https://raw.githubusercontent.com/Abraxas-365/manifesto/main/init-project.sh) \
+bash <(curl -s https://raw.githubusercontent.com/Abraxas-365/manifesto/refs/heads/main/init-project.sh) \
   github.com/yourusername/your-project \
   your-project-name
 ```
