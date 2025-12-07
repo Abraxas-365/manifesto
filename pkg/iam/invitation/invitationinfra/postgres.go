@@ -23,17 +23,27 @@ func NewPostgresInvitationRepository(db *sqlx.DB) invitation.InvitationRepositor
 	}
 }
 
+// getExecutor returns transaction if present in context, otherwise returns db
+func (r *PostgresInvitationRepository) getExecutor(ctx context.Context) sqlx.ExtContext {
+	if tx, ok := ctx.Value("db_tx").(*sqlx.Tx); ok {
+		return tx
+	}
+	return r.db
+}
+
 // FindByID busca una invitación por ID
 func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) (*invitation.Invitation, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT
-			id, tenant_id, email, token, role_id, status, invited_by,
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
-		FROM user_invitations
+		FROM invitations
 		WHERE id = $1`
 
 	var inv invitation.Invitation
-	err := r.db.GetContext(ctx, &inv, query, id)
+	err := sqlx.GetContext(ctx, executor, &inv, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, invitation.ErrInvitationNotFound().WithDetail("invitation_id", id)
@@ -47,15 +57,17 @@ func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) 
 
 // FindByToken busca una invitación por token
 func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token string) (*invitation.Invitation, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT
-			id, tenant_id, email, token, role_id, status, invited_by,
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
-		FROM user_invitations
+		FROM invitations
 		WHERE token = $1`
 
 	var inv invitation.Invitation
-	err := r.db.GetContext(ctx, &inv, query, token)
+	err := sqlx.GetContext(ctx, executor, &inv, query, token)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, invitation.ErrInvitationNotFound().WithDetail("token", token)
@@ -68,16 +80,18 @@ func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token st
 
 // FindByEmail busca invitaciones por email
 func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email string, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT
-			id, tenant_id, email, token, role_id, status, invited_by,
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
-		FROM user_invitations
+		FROM invitations
 		WHERE email = $1 AND tenant_id = $2
 		ORDER BY created_at DESC`
 
 	var invitations []invitation.Invitation
-	err := r.db.SelectContext(ctx, &invitations, query, email, tenantID.String())
+	err := sqlx.SelectContext(ctx, executor, &invitations, query, email, tenantID.String())
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find invitations by email", errx.TypeInternal).
 			WithDetail("email", email)
@@ -94,17 +108,19 @@ func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email st
 
 // FindPendingByEmail busca invitaciones pendientes para un email en un tenant
 func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*invitation.Invitation, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT
-			id, tenant_id, email, token, role_id, status, invited_by,
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
-		FROM user_invitations
+		FROM invitations
 		WHERE email = $1 AND tenant_id = $2 AND status = 'PENDING' AND expires_at > NOW()
 		ORDER BY created_at DESC
 		LIMIT 1`
 
 	var inv invitation.Invitation
-	err := r.db.GetContext(ctx, &inv, query, email, tenantID.String())
+	err := sqlx.GetContext(ctx, executor, &inv, query, email, tenantID.String())
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, invitation.ErrInvitationNotFound().WithDetail("email", email)
@@ -118,16 +134,18 @@ func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, e
 
 // FindByTenant busca todas las invitaciones de un tenant
 func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT
-			id, tenant_id, email, token, role_id, status, invited_by,
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
-		FROM user_invitations
+		FROM invitations
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC`
 
 	var invitations []invitation.Invitation
-	err := r.db.SelectContext(ctx, &invitations, query, tenantID.String())
+	err := sqlx.SelectContext(ctx, executor, &invitations, query, tenantID.String())
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find invitations by tenant", errx.TypeInternal).
 			WithDetail("tenant_id", tenantID.String())
@@ -144,16 +162,18 @@ func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantI
 
 // FindPendingByTenant busca invitaciones pendientes de un tenant
 func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT
-			id, tenant_id, email, token, role_id, status, invited_by,
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
-		FROM user_invitations
+		FROM invitations
 		WHERE tenant_id = $1 AND status = 'PENDING' AND expires_at > NOW()
 		ORDER BY created_at DESC`
 
 	var invitations []invitation.Invitation
-	err := r.db.SelectContext(ctx, &invitations, query, tenantID.String())
+	err := sqlx.SelectContext(ctx, executor, &invitations, query, tenantID.String())
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find pending invitations", errx.TypeInternal).
 			WithDetail("tenant_id", tenantID.String())
@@ -170,15 +190,17 @@ func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, 
 
 // FindExpired busca invitaciones expiradas
 func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invitation.Invitation, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT
-			id, tenant_id, email, token, role_id, status, invited_by,
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
-		FROM user_invitations
+		FROM invitations
 		WHERE status = 'PENDING' AND expires_at < NOW()`
 
 	var invitations []invitation.Invitation
-	err := r.db.SelectContext(ctx, &invitations, query)
+	err := sqlx.SelectContext(ctx, executor, &invitations, query)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find expired invitations", errx.TypeInternal)
 	}
@@ -208,16 +230,31 @@ func (r *PostgresInvitationRepository) Save(ctx context.Context, inv invitation.
 
 // create crea una nueva invitación
 func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitation.Invitation) error {
+	executor := r.getExecutor(ctx)
+
 	query := `
-		INSERT INTO user_invitations (
-			id, tenant_id, email, token, role_id, status, invited_by,
+		INSERT INTO invitations (
+			id, tenant_id, email, token, scopes, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		) VALUES (
-			:id, :tenant_id, :email, :token, :role_id, :status, :invited_by,
-			:expires_at, :accepted_at, :accepted_by, :created_at, :updated_at
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 		)`
 
-	_, err := r.db.NamedExecContext(ctx, query, inv)
+	_, err := executor.ExecContext(ctx, query,
+		inv.ID,
+		inv.TenantID,
+		inv.Email,
+		inv.Token,
+		pq.Array(inv.Scopes),
+		inv.Status,
+		inv.InvitedBy,
+		inv.ExpiresAt,
+		inv.AcceptedAt,
+		inv.AcceptedBy,
+		inv.CreatedAt,
+		inv.UpdatedAt,
+	)
+
 	if err != nil {
 		// Verificar violación de constraint único
 		if pqErr, ok := err.(*pq.Error); ok {
@@ -235,18 +272,30 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 
 // update actualiza una invitación existente
 func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitation.Invitation) error {
-	query := `
-		UPDATE user_invitations SET
-			email = :email,
-			status = :status,
-			role_id = :role_id,
-			expires_at = :expires_at,
-			accepted_at = :accepted_at,
-			accepted_by = :accepted_by,
-			updated_at = :updated_at
-		WHERE id = :id`
+	executor := r.getExecutor(ctx)
 
-	result, err := r.db.NamedExecContext(ctx, query, inv)
+	query := `
+		UPDATE invitations SET
+			email = $1,
+			status = $2,
+			scopes = $3,
+			expires_at = $4,
+			accepted_at = $5,
+			accepted_by = $6,
+			updated_at = $7
+		WHERE id = $8`
+
+	result, err := executor.ExecContext(ctx, query,
+		inv.Email,
+		inv.Status,
+		pq.Array(inv.Scopes),
+		inv.ExpiresAt,
+		inv.AcceptedAt,
+		inv.AcceptedBy,
+		inv.UpdatedAt,
+		inv.ID,
+	)
+
 	if err != nil {
 		return errx.Wrap(err, "failed to update invitation", errx.TypeInternal).
 			WithDetail("invitation_id", inv.ID)
@@ -266,9 +315,11 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 
 // Delete elimina una invitación
 func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) error {
-	query := `DELETE FROM user_invitations WHERE id = $1`
+	executor := r.getExecutor(ctx)
 
-	result, err := r.db.ExecContext(ctx, query, id)
+	query := `DELETE FROM invitations WHERE id = $1`
+
+	result, err := executor.ExecContext(ctx, query, id)
 	if err != nil {
 		return errx.Wrap(err, "failed to delete invitation", errx.TypeInternal).
 			WithDetail("invitation_id", id)
@@ -288,14 +339,16 @@ func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) er
 
 // ExistsPendingForEmail verifica si existe una invitación pendiente para un email
 func (r *PostgresInvitationRepository) ExistsPendingForEmail(ctx context.Context, email string, tenantID kernel.TenantID) (bool, error) {
+	executor := r.getExecutor(ctx)
+
 	query := `
 		SELECT EXISTS(
-			SELECT 1 FROM user_invitations
+			SELECT 1 FROM invitations
 			WHERE email = $1 AND tenant_id = $2 AND status = 'PENDING' AND expires_at > NOW()
 		)`
 
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, query, email, tenantID.String())
+	err := sqlx.GetContext(ctx, executor, &exists, query, email, tenantID.String())
 	if err != nil {
 		return false, errx.Wrap(err, "failed to check pending invitation existence", errx.TypeInternal).
 			WithDetail("email", email)
@@ -306,10 +359,12 @@ func (r *PostgresInvitationRepository) ExistsPendingForEmail(ctx context.Context
 
 // invitationExists verifica si una invitación existe por ID
 func (r *PostgresInvitationRepository) invitationExists(ctx context.Context, id string) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM user_invitations WHERE id = $1)`
+	executor := r.getExecutor(ctx)
+
+	query := `SELECT EXISTS(SELECT 1 FROM invitations WHERE id = $1)`
 
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, query, id)
+	err := sqlx.GetContext(ctx, executor, &exists, query, id)
 	if err != nil {
 		return false, errx.Wrap(err, "failed to check invitation existence", errx.TypeInternal).
 			WithDetail("invitation_id", id)
