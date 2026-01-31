@@ -3,6 +3,7 @@ package otp
 import (
 	"crypto/rand"
 	"fmt"
+	"math/big"
 	"time"
 )
 
@@ -52,11 +53,19 @@ func (o *OTP) IncrementAttempts() {
 	o.Attempts++
 }
 
+// GenerateOTPCode generates a cryptographically secure random OTP code
 func GenerateOTPCode(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
+	// Calculate max value (10^length - 1)
+	max := new(big.Int)
+	max.Exp(big.NewInt(10), big.NewInt(int64(length)), nil)
+
+	// Generate random number between 0 and max-1
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
 		return "", err
 	}
-	code := fmt.Sprintf("%0*d", length*2, int(bytes[0])<<16|int(bytes[1])<<8|int(bytes[2]))
-	return code[:length*2][:6], nil // Return first 6 digits
+
+	// Format with leading zeros
+	format := fmt.Sprintf("%%0%dd", length)
+	return fmt.Sprintf(format, n), nil
 }
