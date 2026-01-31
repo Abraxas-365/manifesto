@@ -1,4 +1,3 @@
-// container.go
 package main
 
 import (
@@ -46,13 +45,14 @@ type Container struct {
 	S3Client   *s3.Client
 
 	// Core IAM Services
-	AuthService       *auth.AuthHandlers
-	TokenService      auth.TokenService
-	APIKeyService     *apikeysrv.APIKeyService
-	TenantService     *tenantsrv.TenantService
-	UserService       *usersrv.UserService
-	InvitationService *invitationsrv.InvitationService
-	OTPService        *otpsrv.OTPService
+	OAuthHandlers        *auth.AuthHandlers             // OAuth authentication
+	PasswordlessHandlers *auth.PasswordlessAuthHandlers // Passwordless (OTP) authentication
+	TokenService         auth.TokenService
+	APIKeyService        *apikeysrv.APIKeyService
+	TenantService        *tenantsrv.TenantService
+	UserService          *usersrv.UserService
+	InvitationService    *invitationsrv.InvitationService
+	OTPService           *otpsrv.OTPService
 
 	// API Handlers
 	APIKeyHandlers     *apikeyapi.APIKeyHandlers
@@ -111,7 +111,7 @@ func (c *Container) initInfrastructure() {
 		DB:       c.Config.Redis.DB,
 	})
 	if _, err := c.Redis.Ping(context.Background()).Result(); err != nil {
-		logx.Fatalf("Failed to connect to Redis: %v (Redis is required for job queue)", err)
+		logx.Fatalf("Failed to connect to Redis: %v (Redis is required)", err)
 	} else {
 		logx.Info("✅ Redis connected")
 	}
@@ -220,6 +220,8 @@ func (c *Container) initRepositories() {
 		userRepo,
 	)
 
+	// OTP Service with Console Notifier (development)
+	// TODO: Replace with real email service in production
 	c.OTPService = otpsrv.NewOTPService(
 		otpRepo,
 		NewConsoleNotifier(),
@@ -247,8 +249,10 @@ func (c *Container) initRepositories() {
 		logx.Info("✅ Microsoft OAuth enabled")
 	}
 
-	// Auth Handler (Core Logic)
-	c.AuthService = auth.NewAuthHandlers(
+	// --- Authentication Handlers ---
+
+	// OAuth Handler
+	c.OAuthHandlers = auth.NewAuthHandlers(
 		oauthServices,
 		c.TokenService,
 		userRepo,
@@ -259,6 +263,20 @@ func (c *Container) initRepositories() {
 		invitationRepo,
 		c.Config,
 	)
+	logx.Info("✅ OAuth handlers initialized")
+
+	// Passwordless Handler
+	c.PasswordlessHandlers = auth.NewPasswordlessAuthHandlers(
+		c.TokenService,
+		userRepo,
+		tenantRepo,
+		tokenRepo,
+		sessionRepo,
+		invitationRepo,
+		c.OTPService,
+		c.Config,
+	)
+	logx.Info("✅ Passwordless handlers initialized")
 
 	// --- API Handlers ---
 	c.APIKeyHandlers = apikeyapi.NewAPIKeyHandlers(c.APIKeyService)
@@ -318,8 +336,6 @@ func (c *Container) Cleanup() {
 // ============================================================================
 
 // getEnv gets an environment variable with a default value
-// Note: Most config should come from config package now
-// This is kept for storage-specific overrides
 func getEnv(key, defaultValue string) string {
 	value := os.Getenv(key)
 	if value == "" {
@@ -343,13 +359,17 @@ func NewConsoleNotifier() *ConsoleNotifier {
 
 // SendOTP prints the OTP code to the terminal
 func (n *ConsoleNotifier) SendOTP(ctx context.Context, contact string, code string) error {
-	fmt.Println("=" + repeatString("=", 50))
-	fmt.Printf("📧 OTP NOTIFICATION\n")
-	fmt.Printf("Contact: %s\n", contact)
-	fmt.Printf("Code: %s\n", code)
-	fmt.Println("=" + repeatString("=", 50))
+	fmt.Println("\n" + repeatString("=", 60))
+	fmt.Println("📧 OTP NOTIFICATION (Console Output)")
+	fmt.Println(repeatString("=", 60))
+	fmt.Printf("📨 To: %s\n", contact)
+	fmt.Printf("🔐 Code: %s\n", code)
+	fmt.Println(repeatString("=", 60))
+	fmt.Println("⚠️  This is console output for development only")
+	fmt.Println("⚠️  In production, configure email service in config")
+	fmt.Println(repeatString("=", 60) + "\n")
 
-	logx.Info(fmt.Sprintf("OTP sent to %s: %s", contact, code))
+	logx.Infof("📧 OTP sent to %s: %s", contact, code)
 	return nil
 }
 
@@ -360,3 +380,4 @@ func repeatString(s string, count int) string {
 	}
 	return result
 }
+
