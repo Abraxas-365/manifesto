@@ -329,15 +329,6 @@ func (s *InvitationService) resolveScopes(req invitation.CreateInvitationRequest
 
 	// Default: usar template "viewer" o scopes básicos
 	defaultScopes := scopes.GetScopesByGroup("viewer")
-	if len(defaultScopes) == 0 {
-		// Fallback a scopes muy básicos
-		defaultScopes = []string{
-			scopes.ScopeUsersRead,
-			scopes.ScopeJobsRead,
-			scopes.ScopeCandidatesRead,
-		}
-	}
-
 	return defaultScopes, nil
 }
 

@@ -602,14 +602,6 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 		userScopes = invitationScopes
 	} else {
 		userScopes = scopes.GetScopesByGroup("viewer")
-		if len(userScopes) == 0 {
-			userScopes = []string{
-				scopes.ScopeUsersRead,
-				scopes.ScopeJobsRead,
-				scopes.ScopeCandidatesRead,
-				scopes.ScopeResumesRead,
-			}
-		}
 	}
 
 	// 🔥 Crear nuevo usuario con OAuth (OTPEnabled = false por defecto)
