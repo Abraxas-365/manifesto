@@ -35,13 +35,15 @@ var (
 	ErrInvalidOperation = s3Errors.Register("INVALID_OPERATION", errx.TypeValidation, 400, "Invalid operation for S3")
 	ErrEmptyBucketName  = s3Errors.Register("EMPTY_BUCKET_NAME", errx.TypeValidation, 400, "Bucket name cannot be empty")
 	ErrInvalidKey       = s3Errors.Register("INVALID_KEY", errx.TypeValidation, 400, "Invalid S3 key format")
+	ErrFailedPresign    = s3Errors.Register("FAILED_PRESIGN", errx.TypeExternal, 500, "Failed to generate presigned URL")
 )
 
 // S3FileSystem implements the FileSystem interface for AWS S3
 type S3FileSystem struct {
-	client   *s3.Client
-	bucket   string
-	rootPath string
+	client        *s3.Client
+	presignClient *s3.PresignClient
+	bucket        string
+	rootPath      string
 }
 
 // NewS3FileSystem creates a new S3FileSystem
@@ -54,9 +56,10 @@ func NewS3FileSystem(client *s3.Client, bucket string, rootPath string) *S3FileS
 	}
 
 	return &S3FileSystem{
-		client:   client,
-		bucket:   bucket,
-		rootPath: rootPath,
+		client:        client,
+		presignClient: s3.NewPresignClient(client),
+		bucket:        bucket,
+		rootPath:      rootPath,
 	}
 }
 
@@ -68,6 +71,10 @@ func (fs *S3FileSystem) s3Key(path string) string {
 	}
 	return path
 }
+
+// ============================================================================
+// FileReader Implementation
+// ============================================================================
 
 // ReadFile reads an entire file from S3
 func (fs *S3FileSystem) ReadFile(ctx context.Context, path string) ([]byte, error) {
@@ -83,7 +90,6 @@ func (fs *S3FileSystem) ReadFile(ctx context.Context, path string) ([]byte, erro
 	})
 
 	if err != nil {
-		// Use NewWithCause for AWS SDK errors to preserve error code
 		var nsk *types.NoSuchKey
 		if errors.As(err, &nsk) {
 			return nil, s3Errors.NewWithCause(ErrObjectNotExists, err).
@@ -99,7 +105,6 @@ func (fs *S3FileSystem) ReadFile(ctx context.Context, path string) ([]byte, erro
 
 	defer output.Body.Close()
 
-	// Use errx.Wrap for generic Go errors
 	data, err := io.ReadAll(output.Body)
 	if err != nil {
 		return nil, errx.Wrap(err, "Failed to read response body", errx.TypeInternal).
@@ -268,6 +273,49 @@ func (fs *S3FileSystem) List(ctx context.Context, path string) ([]fsx.FileInfo, 
 	return files, nil
 }
 
+// Exists checks if a file or directory exists in S3
+func (fs *S3FileSystem) Exists(ctx context.Context, path string) (bool, error) {
+	if fs.bucket == "" {
+		return false, s3Errors.New(ErrEmptyBucketName)
+	}
+
+	key := fs.s3Key(path)
+
+	// Check if it's a file
+	_, err := fs.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(fs.bucket),
+		Key:    aws.String(key),
+	})
+
+	if err == nil {
+		return true, nil
+	}
+
+	// Check if it's a directory
+	if !strings.HasSuffix(key, "/") {
+		key = key + "/"
+	}
+
+	listOutput, err := fs.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(fs.bucket),
+		Prefix:  aws.String(key),
+		MaxKeys: aws.Int32(1),
+	})
+
+	if err != nil {
+		return false, s3Errors.NewWithCause(ErrFailedList, err).
+			WithDetail("path", path).
+			WithDetail("bucket", fs.bucket).
+			WithDetail("key", key)
+	}
+
+	return len(listOutput.Contents) > 0, nil
+}
+
+// ============================================================================
+// FileWriter Implementation
+// ============================================================================
+
 // WriteFile writes data to a file in S3
 func (fs *S3FileSystem) WriteFile(ctx context.Context, path string, data []byte) error {
 	if fs.bucket == "" {
@@ -347,6 +395,10 @@ func (fs *S3FileSystem) CreateDir(ctx context.Context, path string) error {
 
 	return nil
 }
+
+// ============================================================================
+// FileDeleter Implementation
+// ============================================================================
 
 // DeleteFile deletes a file from S3
 func (fs *S3FileSystem) DeleteFile(ctx context.Context, path string) error {
@@ -475,6 +527,10 @@ func (fs *S3FileSystem) DeleteDir(ctx context.Context, path string, recursive bo
 	return nil
 }
 
+// ============================================================================
+// PathOperations Implementation
+// ============================================================================
+
 // Join joins path elements into a single path
 func (fs *S3FileSystem) Join(elem ...string) string {
 	for i := 1; i < len(elem); i++ {
@@ -487,41 +543,120 @@ func (fs *S3FileSystem) Join(elem ...string) string {
 	return path.Join(elem...)
 }
 
-// Exists checks if a file or directory exists in S3
-func (fs *S3FileSystem) Exists(ctx context.Context, path string) (bool, error) {
+// ============================================================================
+// PresignedURLGenerator Implementation
+// ============================================================================
+
+// GetPresignedDownloadURL generates a presigned URL for downloading a file
+func (fs *S3FileSystem) GetPresignedDownloadURL(ctx context.Context, path string, expiration time.Duration) (string, error) {
 	if fs.bucket == "" {
-		return false, s3Errors.New(ErrEmptyBucketName)
+		return "", s3Errors.New(ErrEmptyBucketName)
 	}
 
 	key := fs.s3Key(path)
 
-	// Check if it's a file
-	_, err := fs.client.HeadObject(ctx, &s3.HeadObjectInput{
+	request, err := fs.presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(fs.bucket),
 		Key:    aws.String(key),
-	})
-
-	if err == nil {
-		return true, nil
-	}
-
-	// Check if it's a directory
-	if !strings.HasSuffix(key, "/") {
-		key = key + "/"
-	}
-
-	listOutput, err := fs.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket:  aws.String(fs.bucket),
-		Prefix:  aws.String(key),
-		MaxKeys: aws.Int32(1),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expiration
 	})
 
 	if err != nil {
-		return false, s3Errors.NewWithCause(ErrFailedList, err).
+		return "", s3Errors.NewWithCause(ErrFailedPresign, err).
 			WithDetail("path", path).
 			WithDetail("bucket", fs.bucket).
-			WithDetail("key", key)
+			WithDetail("key", key).
+			WithDetail("operation", "presign_get").
+			WithDetail("expiration", expiration.String())
 	}
 
-	return len(listOutput.Contents) > 0, nil
+	return request.URL, nil
+}
+
+// GetPresignedUploadURL generates a presigned URL for uploading a file
+func (fs *S3FileSystem) GetPresignedUploadURL(ctx context.Context, path string, expiration time.Duration) (string, error) {
+	if fs.bucket == "" {
+		return "", s3Errors.New(ErrEmptyBucketName)
+	}
+
+	key := fs.s3Key(path)
+
+	request, err := fs.presignClient.PresignPutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(fs.bucket),
+		Key:    aws.String(key),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expiration
+	})
+
+	if err != nil {
+		return "", s3Errors.NewWithCause(ErrFailedPresign, err).
+			WithDetail("path", path).
+			WithDetail("bucket", fs.bucket).
+			WithDetail("key", key).
+			WithDetail("operation", "presign_put").
+			WithDetail("expiration", expiration.String())
+	}
+
+	return request.URL, nil
+}
+
+// GetPresignedUploadURLWithOptions generates a presigned URL with additional options
+func (fs *S3FileSystem) GetPresignedUploadURLWithOptions(ctx context.Context, path string, opts fsx.PresignedURLOptions) (string, error) {
+	if fs.bucket == "" {
+		return "", s3Errors.New(ErrEmptyBucketName)
+	}
+
+	key := fs.s3Key(path)
+
+	putInput := &s3.PutObjectInput{
+		Bucket: aws.String(fs.bucket),
+		Key:    aws.String(key),
+	}
+
+	// Set content type if provided
+	if opts.ContentType != "" {
+		putInput.ContentType = aws.String(opts.ContentType)
+	}
+
+	// Set metadata if provided
+	if len(opts.Metadata) > 0 {
+		putInput.Metadata = opts.Metadata
+	}
+
+	// Default expiration if not set
+	expiration := opts.Expiration
+	if expiration == 0 {
+		expiration = 15 * time.Minute
+	}
+
+	request, err := fs.presignClient.PresignPutObject(ctx, putInput, func(presignOpts *s3.PresignOptions) {
+		presignOpts.Expires = expiration
+	})
+
+	if err != nil {
+		return "", s3Errors.NewWithCause(ErrFailedPresign, err).
+			WithDetail("path", path).
+			WithDetail("bucket", fs.bucket).
+			WithDetail("key", key).
+			WithDetail("operation", "presign_put_with_options").
+			WithDetail("expiration", expiration.String()).
+			WithDetail("content_type", opts.ContentType)
+	}
+
+	return request.URL, nil
+}
+
+// ============================================================================
+// Additional Helper Methods
+// ============================================================================
+
+// GetBucket returns the bucket name
+func (fs *S3FileSystem) GetBucket() string {
+	return fs.bucket
+}
+
+// GetRootPath returns the root path
+func (fs *S3FileSystem) GetRootPath() string {
+	return fs.rootPath
 }

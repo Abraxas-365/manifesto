@@ -43,6 +43,25 @@ type PathOperations interface {
 	Join(elem ...string) string
 }
 
+// PresignedURLOptions contains options for presigned URL generation
+type PresignedURLOptions struct {
+	Expiration  time.Duration     // How long the URL is valid
+	ContentType string            // Content-Type header (for uploads)
+	Metadata    map[string]string // Custom metadata (for uploads)
+}
+
+// PresignedURLGenerator provides presigned URL generation
+type PresignedURLGenerator interface {
+	// GetPresignedDownloadURL generates a presigned URL for downloading a file
+	GetPresignedDownloadURL(ctx context.Context, path string, expiration time.Duration) (string, error)
+
+	// GetPresignedUploadURL generates a presigned URL for uploading a file
+	GetPresignedUploadURL(ctx context.Context, path string, expiration time.Duration) (string, error)
+
+	// GetPresignedUploadURLWithOptions generates a presigned URL with additional options
+	GetPresignedUploadURLWithOptions(ctx context.Context, path string, opts PresignedURLOptions) (string, error)
+}
+
 // FileSystem combines all file operations
 type FileSystem interface {
 	FileReader
@@ -51,7 +70,14 @@ type FileSystem interface {
 	PathOperations
 }
 
+// PathReader combines read and path operations
 type PathReader interface {
 	FileReader
 	PathOperations
+}
+
+// FileSystemWithPresign combines standard file operations with presigned URL generation
+type FileSystemWithPresign interface {
+	FileSystem
+	PresignedURLGenerator
 }
