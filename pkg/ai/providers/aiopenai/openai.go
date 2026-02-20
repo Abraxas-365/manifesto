@@ -501,44 +501,38 @@ func (s *openAIStream) Next() (llm.Message, error) {
 	s.accumulator.AddChunk(chunk)
 
 	if len(chunk.Choices) == 0 {
-		return llm.Message{}, nil
+		return llm.Message{Role: llm.RoleAssistant}, nil
 	}
 
 	delta := chunk.Choices[0].Delta
 
-	s.current.Role = llm.RoleAssistant
-	s.current.Content += delta.Content
+	// ✅ Use INDEX-based accumulation, not ID-based.
+	// OpenAI only sends the ID on the first delta for each tool call.
+	// All subsequent argument chunks have an empty ID but carry the correct Index.
+	for _, tc := range delta.ToolCalls {
+		idx := int(tc.Index)
 
-	if len(delta.ToolCalls) > 0 {
-		if s.current.ToolCalls == nil {
-			s.current.ToolCalls = make([]llm.ToolCall, 0)
+		// Grow the slice to accommodate this index
+		for len(s.current.ToolCalls) <= idx {
+			s.current.ToolCalls = append(s.current.ToolCalls, llm.ToolCall{Type: "function"})
 		}
 
-		for _, tc := range delta.ToolCalls {
-			found := false
-			for i, existingTC := range s.current.ToolCalls {
-				if existingTC.ID == tc.ID {
-					s.current.ToolCalls[i].Function.Name += tc.Function.Name
-					s.current.ToolCalls[i].Function.Arguments += tc.Function.Arguments
-					found = true
-					break
-				}
-			}
-
-			if !found && tc.ID != "" {
-				s.current.ToolCalls = append(s.current.ToolCalls, llm.ToolCall{
-					ID:   tc.ID,
-					Type: "function",
-					Function: llm.FunctionCall{
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
-				})
-			}
+		// Only set ID and Name when they arrive (first chunk for this tool call)
+		if tc.ID != "" {
+			s.current.ToolCalls[idx].ID = tc.ID
 		}
+		if tc.Function.Name != "" {
+			s.current.ToolCalls[idx].Function.Name += tc.Function.Name
+		}
+		// Arguments accumulate across ALL chunks for this tool call
+		s.current.ToolCalls[idx].Function.Arguments += tc.Function.Arguments
 	}
 
-	return s.current, nil
+	return llm.Message{
+		Role:      llm.RoleAssistant,
+		Content:   delta.Content,       // delta only
+		ToolCalls: s.current.ToolCalls, // full accumulated snapshot
+	}, nil
 }
 
 func (s *openAIStream) Close() error {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/Abraxas-365/manifesto/pkg/ai/llm"
 	"github.com/Abraxas-365/manifesto/pkg/ai/llm/memoryx"
@@ -225,92 +226,187 @@ func (a *Agent) Messages() ([]llm.Message, error) {
 	return a.memory.Messages()
 }
 
-// StreamWithTools streams responses while handling tool calls
-// This is a more advanced implementation that processes tool calls in streaming mode
-func (a *Agent) StreamWithTools(ctx context.Context, userInput string, streamHandler func(chunk string)) error {
+// StreamWithTools streams the full agent loop including tool calls.
+// The handler receives structured StreamEvents so the caller can react to
+// text chunks, tool invocations, and tool results independently.
+func (a *Agent) StreamWithTools(ctx context.Context, userInput string, handler StreamHandler) error {
 	if err := a.memory.Add(llm.NewUserMessage(userInput)); err != nil {
 		return fmt.Errorf("failed to add user message: %w", err)
 	}
 
-	messages, err := a.memory.Messages()
-	if err != nil {
-		return fmt.Errorf("failed to retrieve messages: %w", err)
-	}
-
-	options := a.options
-	if a.tools != nil {
-		toolList := a.getToolsList()
-		if len(toolList) > 0 {
-			options = append(options, llm.WithTools(toolList))
+	for iteration := 0; iteration < a.maxTotalIterations; iteration++ {
+		messages, err := a.memory.Messages()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve messages: %w", err)
 		}
+
+		// Build options — force tools off after maxAutoIterations
+		options := a.buildOptions(iteration)
+
+		// ── 1. Stream the LLM response ────────────────────────────────────
+		stream, err := a.client.ChatStream(ctx, messages, options...)
+		if err != nil {
+			return fmt.Errorf("stream error: %w", err)
+		}
+
+		assistantMsg, err := a.consumeStream(ctx, stream, handler)
+		stream.Close()
+		if err != nil {
+			return err
+		}
+
+		// Persist the full assistant message (text + any tool_calls)
+		if err := a.memory.Add(assistantMsg); err != nil {
+			return fmt.Errorf("failed to add assistant message: %w", err)
+		}
+
+		// ── 2. No tool calls → we're done ─────────────────────────────────
+		if len(assistantMsg.ToolCalls) == 0 {
+			return nil
+		}
+
+		// ── 3. Execute tools, emit events for each ────────────────────────
+		if a.tools == nil {
+			return nil
+		}
+
+		if err := a.executeAndEmitTools(ctx, assistantMsg.ToolCalls, handler); err != nil {
+			return err
+		}
+
+		// Loop: build new messages with tool results and call LLM again
 	}
 
-	// Initial streaming response
-	stream, err := a.client.ChatStream(ctx, messages, options...)
-	if err != nil {
-		return err
-	}
-	defer stream.Close()
+	return fmt.Errorf("maximum iterations (%d) exceeded", a.maxTotalIterations)
+}
 
-	// Collect the full message and stream chunks to the handler
-	var fullMessage llm.Message
-	var responseContent string
-	var toolCalls []llm.ToolCall
+// consumeStream drains a Stream, forwards text chunks as EventText events,
+// accumulates tool call deltas, and returns the fully-assembled Message.
+func (a *Agent) consumeStream(ctx context.Context, stream llm.Stream, handler StreamHandler) (llm.Message, error) {
+	var (
+		contentBuf strings.Builder
+		toolCalls  []llm.ToolCall // final snapshot from the stream's internal accumulator
+	)
 
 	for {
 		chunk, err := stream.Next()
 		if err != nil {
-			// Check if it's the end of the stream
 			if errors.Is(err, io.EOF) {
-				// Some implementations might return a final chunk with the error
-				if chunk.Role != "" {
-					fullMessage = chunk
-				}
 				break
 			}
-			// Any other error is returned
-			return err
+			return llm.Message{}, fmt.Errorf("stream read error: %w", err)
 		}
 
-		// Accumulate content
+		// Forward text delta immediately
 		if chunk.Content != "" {
-			responseContent += chunk.Content
-			streamHandler(chunk.Content)
+			contentBuf.WriteString(chunk.Content)
+			handler(StreamEvent{
+				Type:    EventText,
+				Content: chunk.Content,
+			})
 		}
 
-		// Collect tool calls if present
 		if len(chunk.ToolCalls) > 0 {
 			toolCalls = chunk.ToolCalls
 		}
 	}
 
-	// If we don't have a full message yet, construct one
-	if fullMessage.Role == "" {
-		fullMessage = llm.Message{
-			Role:      llm.RoleAssistant,
-			Content:   responseContent,
-			ToolCalls: toolCalls,
-		}
-	}
+	return llm.Message{
+		Role:      llm.RoleAssistant,
+		Content:   contentBuf.String(),
+		ToolCalls: toolCalls,
+	}, nil
+}
 
-	// Add the full message to memory
-	if err := a.memory.Add(fullMessage); err != nil {
-		return fmt.Errorf("failed to add assistant response: %w", err)
-	}
+// executeAndEmitTools runs every tool call sequentially, emits before/after events,
+// and adds each result to memory so the next LLM call has full context.
+func (a *Agent) executeAndEmitTools(ctx context.Context, toolCalls []llm.ToolCall, handler StreamHandler) error {
+	for _, tc := range toolCalls {
+		// Notify caller: tool is about to run
+		handler(StreamEvent{
+			Type:       EventToolCall,
+			ToolCallID: tc.ID,
+			ToolName:   tc.Function.Name,
+			ToolInput:  tc.Function.Arguments,
+		})
 
-	// Process tool calls if any
-	if len(fullMessage.ToolCalls) > 0 && a.tools != nil {
-		streamHandler("\n[Processing tool calls...]\n")
-
-		finalResponse, err := a.handleToolCalls(ctx, fullMessage.ToolCalls)
+		// Execute
+		toolMsg, err := a.tools.Call(ctx, tc)
 		if err != nil {
-			return err
+			handler(StreamEvent{Type: EventError, Err: err})
+			return fmt.Errorf("tool %q failed: %w", tc.Function.Name, err)
 		}
 
-		streamHandler("\n[Final response after tool calls]\n" + finalResponse)
+		// Notify caller: tool finished
+		handler(StreamEvent{
+			Type:       EventToolResult,
+			ToolCallID: tc.ID,
+			ToolName:   tc.Function.Name,
+			ToolOutput: toolMsg.Content,
+		})
+
+		// Persist result so the next LLM call sees it
+		if err := a.memory.Add(toolMsg); err != nil {
+			return fmt.Errorf("failed to add tool result: %w", err)
+		}
+	}
+	return nil
+}
+
+// buildOptions constructs the LLM option slice for a given iteration.
+// After maxAutoIterations it forces tool_choice=none to break the loop.
+func (a *Agent) buildOptions(iteration int) []llm.Option {
+	options := append([]llm.Option(nil), a.options...) // copy
+
+	if a.tools == nil {
+		return options
 	}
 
-	return nil
+	toolList := a.getToolsList()
+	if len(toolList) == 0 {
+		return options
+	}
+
+	options = append(options, llm.WithTools(toolList))
+
+	if iteration >= a.maxAutoIterations {
+		options = append(options, llm.WithToolChoice("none"))
+	} else {
+		options = append(options, llm.WithToolChoice("auto"))
+	}
+
+	return options
+}
+
+// mergeToolCallDelta assembles streaming tool-call deltas into complete ToolCalls.
+// OpenAI streams tool call arguments across multiple chunks identified by index/ID.
+func mergeToolCallDelta(existing []llm.ToolCall, delta llm.ToolCall) []llm.ToolCall {
+	// If we already have a call with this ID, append to its arguments
+	for i, tc := range existing {
+		if tc.ID == delta.ID {
+			existing[i].Function.Name += delta.Function.Name
+			existing[i].Function.Arguments += delta.Function.Arguments
+			return existing
+		}
+	}
+	// New tool call — only start one if it has an ID (first delta for that call)
+	if delta.ID != "" {
+		return append(existing, llm.ToolCall{
+			ID:   delta.ID,
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      delta.Function.Name,
+				Arguments: delta.Function.Arguments,
+			},
+		})
+	}
+	// Delta without ID means it's appending to the last call (index-based streaming)
+	if len(existing) > 0 {
+		last := len(existing) - 1
+		existing[last].Function.Name += delta.Function.Name
+		existing[last].Function.Arguments += delta.Function.Arguments
+	}
+	return existing
 }
 
 // RunConversation runs a complete conversation with multiple turns
