@@ -71,12 +71,6 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) Validate() error {
-	if c.Auth.JWT.SecretKey == "" {
-		return fmt.Errorf("JWT_SECRET_KEY is required")
-	}
-	if len(c.Auth.JWT.SecretKey) < 32 {
-		return fmt.Errorf("JWT_SECRET_KEY must be at least 32 characters")
-	}
 	return nil
 }
 
