@@ -6,40 +6,42 @@ This repository serves as a **production-ready Go project skeleton** with built-
 
 ### Quick Start
 
-**1. Clone and initialize a new project:**
+Use the **[Manifesto CLI](https://github.com/Abraxas-365/manifesto-cli)** to scaffold a new project in seconds:
 
 ```bash
-# Navigate to where you want your new project
-cd ~/Projects
-
-# Run the initialization script
-bash <(curl -s https://raw.githubusercontent.com/Abraxas-365/manifesto/refs/heads/main/init-project.sh) \
-  github.com/yourusername/your-project \
-  your-project-name
+go install github.com/Abraxas-365/manifesto-cli/cmd/manifesto@latest
 ```
 
-**2. Verify the setup:**
+Requires Go 1.23+.
+
+**1. Create a new project:**
 
 ```bash
-# Check that imports were updated
-grep -r "github.com/yourusername/your-project" pkg/
+# Interactive — core modules only
+manifesto init myapp --module github.com/me/myapp
 
-# Ensure dependencies are clean
+# With optional modules
+manifesto init myapp --module github.com/me/myapp --with iam,fsx
+
+# Everything included
+manifesto init myapp --module github.com/me/myapp --all
+```
+
+**2. Add domain packages:**
+
+```bash
+cd myapp
+manifesto add pkg/recruitment/candidate
+```
+
+**3. Verify the setup:**
+
+```bash
 go mod tidy
 go build ./...
 ```
 
-### Removing the Bootstrap Script
-
-After initialization, you can safely delete the script:
-
-```bash
-rm init-project.sh
-git add -A
-git commit -m "Remove initialization script"
-```
-
----
+> For a full list of CLI commands and available modules, see the [Manifesto CLI repository](https://github.com/Abraxas-365/manifesto-cli).
 
 ## Philosophy & Core Principles
 
