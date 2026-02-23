@@ -12,20 +12,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// NotificationService is a generic interface for sending OTP codes
-type NotificationService interface {
-	SendOTP(ctx context.Context, contact string, code string) error
-}
-
 type OTPService struct {
 	repo                otp.Repository
-	notificationService NotificationService
+	notificationService otp.NotificationService
 	config              *config.OTPConfig
 }
 
 func NewOTPService(
 	repo otp.Repository,
-	notificationService NotificationService,
+	notificationService otp.NotificationService,
 	cfg *config.OTPConfig,
 ) *OTPService {
 	return &OTPService{
@@ -120,4 +115,3 @@ func (s *OTPService) VerifyOTP(ctx context.Context, contact string, code string)
 	remainingAttempts := otpEntity.MaxAttempts - otpEntity.Attempts
 	return nil, otp.ErrInvalidOTP().WithDetail("attempts_remaining", remainingAttempts)
 }
-

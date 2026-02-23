@@ -133,37 +133,36 @@ func setupMiddleware(app *fiber.App, cfg *config.Config) {
 	}))
 }
 
+// cmd/server.go (only the registerRoutes function changes)
+//
+// Before: container.OAuthHandlers.RegisterRoutes(app)
+// After:  container.IAM.OAuthHandlers.RegisterRoutes(app)
+
 func registerRoutes(app *fiber.App, container *Container) {
 	logx.Info("📝 Registering routes...")
 
-	// ========================================================================
-	// Core Authentication Routes
-	// ========================================================================
+	// ── IAM Routes ───────────────────────────────────────────────────────
 
-	// OAuth Authentication
-	// Routes: /auth/login, /auth/callback/:provider, /auth/refresh, /auth/logout, /auth/me
-	container.OAuthHandlers.RegisterRoutes(app)
-	logx.Info("✓ OAuth routes registered")
+	container.IAM.OAuthHandlers.RegisterRoutes(app)
+	logx.Info("  ✓ OAuth routes registered")
 
-	// Passwordless Authentication (OTP-based)
-	// Routes: /auth/passwordless/*
-	container.PasswordlessHandlers.RegisterRoutes(app)
-	logx.Info("✓ Passwordless auth routes registered")
+	container.IAM.PasswordlessHandlers.RegisterRoutes(app)
+	logx.Info("  ✓ Passwordless auth routes registered")
 
-	// ========================================================================
-	// IAM (Identity & Access Management) Routes
-	// ========================================================================
+	// Protected IAM routes
+	protected := app.Group("/api/v1",
+		container.IAM.UnifiedAuthMiddleware.Authenticate(),
+	)
 
-	// API Routes Group
-	api := app.Group("/api/v1")
+	container.IAM.APIKeyHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  ✓ API key routes registered")
 
-	// API Keys Management: /api/v1/api-keys/*
-	container.APIKeyHandlers.RegisterRoutes(api, container.UnifiedAuthMiddleware)
-	logx.Info("✓ API Key routes registered")
+	container.IAM.InvitationHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
+	logx.Info("  ✓ Invitation routes registered")
 
-	// Invitations Management: /api/v1/invitations/*
-	container.InvitationHandlers.RegisterRoutes(api, container.UnifiedAuthMiddleware)
-	logx.Info("✓ Invitation routes registered")
+	// ── Recruitment Routes (future) ──────────────────────────────────────
+	// container.Recruitment.JobHandlers.RegisterRoutes(protected)
+	// container.Recruitment.CandidateHandlers.RegisterRoutes(protected)
 
 	logx.Info("✅ All routes registered")
 }

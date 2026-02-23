@@ -9,3 +9,8 @@ type Repository interface {
 	Update(ctx context.Context, otp *OTP) error
 	DeleteExpired(ctx context.Context) error
 }
+
+// NotificationService is a generic interface for sending OTP codes
+type NotificationService interface {
+	SendOTP(ctx context.Context, contact string, code string) error
+}
