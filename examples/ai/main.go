@@ -13,9 +13,14 @@ import (
 	"github.com/Abraxas-365/manifesto/pkg/ai/llm/agentx"
 	"github.com/Abraxas-365/manifesto/pkg/ai/llm/memoryx"
 	"github.com/Abraxas-365/manifesto/pkg/ai/llm/toolx"
+	"github.com/Abraxas-365/manifesto/pkg/ai/providers/aianthropic"
+	"github.com/Abraxas-365/manifesto/pkg/ai/providers/aiazure"
+	"github.com/Abraxas-365/manifesto/pkg/ai/providers/aibedrock"
+	"github.com/Abraxas-365/manifesto/pkg/ai/providers/aigemini"
 	"github.com/Abraxas-365/manifesto/pkg/ai/providers/aiopenai"
 	"github.com/Abraxas-365/manifesto/pkg/ai/vstore"
 	"github.com/Abraxas-365/manifesto/pkg/ai/vstore/providers/vstmemory"
+	"github.com/aws/aws-sdk-go-v2/config"
 )
 
 func main() {
@@ -33,10 +38,19 @@ func main() {
 
 	exampleBasicChat(ctx, provider)
 	exampleStreaming(ctx, provider)
+	exampleVision(ctx, provider)
+	exampleMultimodal(ctx, provider)
 	exampleAgent(ctx, provider)
+	exampleMultimodalAgent(ctx, provider)
 	exampleMemorySummarization(ctx, provider)
 	exampleContextualMemory(ctx, provider)
 	exampleComposedMemory(ctx, provider)
+
+	// Provider-specific examples (only run if env vars are set)
+	exampleAnthropicProvider(ctx)
+	exampleBedrockProvider(ctx)
+	exampleAzureProvider(ctx)
+	exampleGeminiProvider(ctx)
 
 	fmt.Println("\nDone!")
 }
@@ -100,7 +114,77 @@ func exampleStreaming(ctx context.Context, provider *aiopenai.OpenAIProvider) {
 }
 
 // ============================================================================
-// 3. Agent with Tools
+// 3. Vision — describe an image
+// ============================================================================
+
+func exampleVision(ctx context.Context, provider *aiopenai.OpenAIProvider) {
+	fmt.Println("\n--- Vision (Image + Text) ---")
+
+	client := llm.NewClient(provider)
+
+	messages := []llm.Message{
+		llm.NewSystemMessage("You are a helpful assistant that can see images."),
+		// NewImageMessage is a shorthand for text + one image
+		llm.NewImageMessage(
+			"What do you see in this image? Be concise.",
+			"https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/GoldenGateBridge-001.jpg/1280px-GoldenGateBridge-001.jpg",
+			llm.ImageDetailLow,
+		),
+	}
+
+	resp, err := client.Chat(ctx, messages,
+		llm.WithModel("gpt-4o"),
+		llm.WithMaxTokens(150),
+	)
+	if err != nil {
+		log.Printf("Vision error: %v", err)
+		return
+	}
+
+	fmt.Printf("Response: %s\n", resp.Message.Content)
+	fmt.Printf("Tokens: prompt=%d completion=%d\n",
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+}
+
+// ============================================================================
+// 4. Multimodal — multiple content parts in one message
+// ============================================================================
+
+func exampleMultimodal(ctx context.Context, provider *aiopenai.OpenAIProvider) {
+	fmt.Println("\n--- Multimodal (Multiple Images) ---")
+
+	client := llm.NewClient(provider)
+
+	// Build a message with text + two images using content parts
+	messages := []llm.Message{
+		llm.NewSystemMessage("You are a concise assistant that can analyze images."),
+		llm.NewMultimodalUserMessage(
+			llm.TextPart("Compare these two images. What are the key differences?"),
+			llm.ImagePart(
+				"https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/GoldenGateBridge-001.jpg/1280px-GoldenGateBridge-001.jpg",
+				llm.ImageDetailLow,
+			),
+			llm.ImagePart(
+				"https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Statue_of_Liberty_7.jpg/1280px-Statue_of_Liberty_7.jpg",
+				llm.ImageDetailLow,
+			),
+		),
+	}
+
+	resp, err := client.Chat(ctx, messages,
+		llm.WithModel("gpt-4o"),
+		llm.WithMaxTokens(200),
+	)
+	if err != nil {
+		log.Printf("Multimodal error: %v", err)
+		return
+	}
+
+	fmt.Printf("Response: %s\n", truncate(resp.Message.Content, 200))
+}
+
+// ============================================================================
+// 5. Agent with Tools
 // ============================================================================
 
 // calculatorTool implements toolx.Toolx for the example.
@@ -182,7 +266,47 @@ func exampleAgent(ctx context.Context, provider *aiopenai.OpenAIProvider) {
 }
 
 // ============================================================================
-// 4. SummarizingMemory — auto-compress when context gets large
+// 6. Multimodal Agent — vision with tool support
+// ============================================================================
+
+func exampleMultimodalAgent(ctx context.Context, provider *aiopenai.OpenAIProvider) {
+	fmt.Println("\n--- Multimodal Agent ---")
+
+	client := llm.NewClient(provider)
+	memory := memoryx.NewInMemoryMemory("You are a helpful assistant that can see images and use tools.")
+	tools := toolx.FromToolx(&calculatorTool{})
+
+	agent := agentx.New(*client, memory,
+		agentx.WithTools(tools),
+		agentx.WithOptions(llm.WithModel("gpt-4o")),
+		agentx.WithMaxAutoIterations(3),
+	)
+
+	// Send a multimodal message directly to the agent's memory, then run
+	imageMsg := llm.NewImageMessage(
+		"How many bridge towers do you see? Multiply that number by 100 using the calculator.",
+		"https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/GoldenGateBridge-001.jpg/1280px-GoldenGateBridge-001.jpg",
+		llm.ImageDetailLow,
+	)
+
+	// Add the multimodal message to memory and run the agent loop
+	if err := agent.AddMessage(imageMsg); err != nil {
+		log.Printf("Error adding message: %v", err)
+		return
+	}
+
+	// Use Run with an empty follow-up to trigger the LLM response
+	// (the image message is already in memory)
+	resp, err := agent.Run(ctx, "Please answer the question above about the bridge towers.")
+	if err != nil {
+		log.Printf("Multimodal agent error: %v", err)
+		return
+	}
+	fmt.Printf("Agent: %s\n", truncate(resp, 200))
+}
+
+// ============================================================================
+// 7. SummarizingMemory — auto-compress when context gets large
 // ============================================================================
 
 func exampleMemorySummarization(ctx context.Context, provider *aiopenai.OpenAIProvider) {
@@ -235,7 +359,7 @@ func exampleMemorySummarization(ctx context.Context, provider *aiopenai.OpenAIPr
 }
 
 // ============================================================================
-// 5. ContextualMemory — semantic retrieval from vector store
+// 8. ContextualMemory — semantic retrieval from vector store
 // ============================================================================
 
 func exampleContextualMemory(ctx context.Context, provider *aiopenai.OpenAIProvider) {
@@ -290,7 +414,7 @@ func exampleContextualMemory(ctx context.Context, provider *aiopenai.OpenAIProvi
 }
 
 // ============================================================================
-// 6. Composed Memory — Summarization + Contextual together
+// 9. Composed Memory — Summarization + Contextual together
 // ============================================================================
 
 func exampleComposedMemory(ctx context.Context, provider *aiopenai.OpenAIProvider) {
@@ -337,6 +461,138 @@ func exampleComposedMemory(ctx context.Context, provider *aiopenai.OpenAIProvide
 		return
 	}
 	fmt.Printf("Assistant: %s\n", truncate(resp, 120))
+}
+
+// ============================================================================
+// 10. Anthropic Claude Provider
+// ============================================================================
+
+func exampleAnthropicProvider(ctx context.Context) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		fmt.Println("\n--- Anthropic Provider (skipped: set ANTHROPIC_API_KEY) ---")
+		return
+	}
+	fmt.Println("\n--- Anthropic Claude ---")
+
+	provider := aianthropic.NewAnthropicProvider("")
+	client := llm.NewClient(provider)
+
+	messages := []llm.Message{
+		llm.NewSystemMessage("You are a concise assistant. Reply in one sentence."),
+		llm.NewUserMessage("What is Rust good for?"),
+	}
+
+	resp, err := client.Chat(ctx, messages,
+		llm.WithModel("claude-sonnet-4-20250514"),
+		llm.WithMaxTokens(150),
+	)
+	if err != nil {
+		log.Printf("Anthropic error: %v", err)
+		return
+	}
+	fmt.Printf("Claude: %s\n", truncate(resp.Message.Content, 200))
+	fmt.Printf("Tokens: prompt=%d completion=%d total=%d\n",
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.TotalTokens)
+}
+
+// ============================================================================
+// 11. AWS Bedrock Provider
+// ============================================================================
+
+func exampleBedrockProvider(ctx context.Context) {
+	// Bedrock uses AWS credentials (env, config file, IAM role, etc.)
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		fmt.Println("\n--- Bedrock Provider (skipped: no AWS config) ---")
+		return
+	}
+	fmt.Println("\n--- AWS Bedrock ---")
+
+	provider := aibedrock.NewBedrockProvider(cfg)
+	client := llm.NewClient(provider)
+
+	messages := []llm.Message{
+		llm.NewSystemMessage("You are a concise assistant. Reply in one sentence."),
+		llm.NewUserMessage("What makes AWS Lambda useful?"),
+	}
+
+	resp, err := client.Chat(ctx, messages,
+		llm.WithMaxTokens(150),
+	)
+	if err != nil {
+		log.Printf("Bedrock error: %v", err)
+		return
+	}
+	fmt.Printf("Bedrock: %s\n", truncate(resp.Message.Content, 200))
+}
+
+// ============================================================================
+// 12. Azure OpenAI Provider
+// ============================================================================
+
+func exampleAzureProvider(ctx context.Context) {
+	endpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
+	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	deployment := os.Getenv("AZURE_OPENAI_DEPLOYMENT")
+	if endpoint == "" || apiKey == "" || deployment == "" {
+		fmt.Println("\n--- Azure OpenAI Provider (skipped: set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT) ---")
+		return
+	}
+	fmt.Println("\n--- Azure OpenAI ---")
+
+	provider := aiazure.NewAzureOpenAIProvider(endpoint, apiKey)
+	client := llm.NewClient(provider)
+
+	messages := []llm.Message{
+		llm.NewSystemMessage("You are a concise assistant. Reply in one sentence."),
+		llm.NewUserMessage("What is Azure good for?"),
+	}
+
+	resp, err := client.Chat(ctx, messages,
+		llm.WithModel(deployment),
+		llm.WithMaxTokens(150),
+	)
+	if err != nil {
+		log.Printf("Azure error: %v", err)
+		return
+	}
+	fmt.Printf("Azure: %s\n", truncate(resp.Message.Content, 200))
+}
+
+// ============================================================================
+// 13. Google Gemini Provider
+// ============================================================================
+
+func exampleGeminiProvider(ctx context.Context) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		fmt.Println("\n--- Gemini Provider (skipped: set GEMINI_API_KEY) ---")
+		return
+	}
+	fmt.Println("\n--- Google Gemini ---")
+
+	provider, err := aigemini.NewGeminiProvider(ctx, "")
+	if err != nil {
+		log.Printf("Gemini init error: %v", err)
+		return
+	}
+	client := llm.NewClient(provider)
+
+	messages := []llm.Message{
+		llm.NewSystemMessage("You are a concise assistant. Reply in one sentence."),
+		llm.NewUserMessage("What is Kubernetes good for?"),
+	}
+
+	resp, err := client.Chat(ctx, messages,
+		llm.WithModel("gemini-2.0-flash"),
+		llm.WithMaxTokens(150),
+	)
+	if err != nil {
+		log.Printf("Gemini error: %v", err)
+		return
+	}
+	fmt.Printf("Gemini: %s\n", truncate(resp.Message.Content, 200))
+	fmt.Printf("Tokens: prompt=%d completion=%d total=%d\n",
+		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.TotalTokens)
 }
 
 // ============================================================================
