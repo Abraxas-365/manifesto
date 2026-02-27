@@ -28,7 +28,7 @@ func (e *CharBasedEstimator) EstimateTokens(messages []llm.Message) int {
 	for _, m := range messages {
 		// Each message has ~4 tokens of overhead (role, separators)
 		total += 4
-		total += len(m.Content) / e.ratio()
+		total += len(m.TextContent()) / e.ratio()
 		if m.Name != "" {
 			total += len(m.Name) / e.ratio()
 		}

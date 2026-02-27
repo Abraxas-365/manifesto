@@ -548,6 +548,13 @@ func convertToOpenAIMessage(msg llm.Message) (openai.ChatCompletionMessageParamU
 	case llm.RoleSystem:
 		return openai.SystemMessage(msg.Content), nil
 	case llm.RoleUser:
+		if msg.IsMultimodal() {
+			parts, err := convertToOpenAIContentParts(msg.MultiContent)
+			if err != nil {
+				return openai.ChatCompletionMessageParamUnion{}, err
+			}
+			return openai.UserMessage(parts), nil
+		}
 		return openai.UserMessage(msg.Content), nil
 	case llm.RoleAssistant:
 		if len(msg.ToolCalls) > 0 {
@@ -762,6 +769,56 @@ func convertFromOpenAIResponse(completion *openai.ChatCompletion) (llm.Response,
 		Message: message,
 		Usage:   usage,
 	}, nil
+}
+
+func convertToOpenAIContentParts(parts []llm.ContentPart) ([]openai.ChatCompletionContentPartUnionParam, error) {
+	result := make([]openai.ChatCompletionContentPartUnionParam, 0, len(parts))
+	for _, part := range parts {
+		switch part.Type {
+		case llm.ContentPartTypeText:
+			result = append(result, openai.TextContentPart(part.Text))
+		case llm.ContentPartTypeImageURL:
+			if part.ImageURL == nil {
+				return nil, errorRegistry.New(ErrInvalidMessage).
+					WithDetail("error", "image_url content part missing image_url")
+			}
+			imgParam := openai.ChatCompletionContentPartImageImageURLParam{
+				URL:    part.ImageURL.URL,
+				Detail: string(part.ImageURL.Detail),
+			}
+			result = append(result, openai.ImageContentPart(imgParam))
+		case llm.ContentPartTypeInputAudio:
+			if part.InputAudio == nil {
+				return nil, errorRegistry.New(ErrInvalidMessage).
+					WithDetail("error", "input_audio content part missing input_audio")
+			}
+			audioParam := openai.ChatCompletionContentPartInputAudioInputAudioParam{
+				Data:   part.InputAudio.Data,
+				Format: part.InputAudio.Format,
+			}
+			result = append(result, openai.InputAudioContentPart(audioParam))
+		case llm.ContentPartTypeFile:
+			if part.File == nil {
+				return nil, errorRegistry.New(ErrInvalidMessage).
+					WithDetail("error", "file content part missing file")
+			}
+			fileParam := openai.ChatCompletionContentPartFileFileParam{}
+			if part.File.FileID != "" {
+				fileParam.FileID = param.NewOpt(part.File.FileID)
+			}
+			if part.File.FileData != "" {
+				fileParam.FileData = param.NewOpt(part.File.FileData)
+			}
+			if part.File.Filename != "" {
+				fileParam.Filename = param.NewOpt(part.File.Filename)
+			}
+			result = append(result, openai.FileContentPart(fileParam))
+		default:
+			return nil, errorRegistry.New(ErrInvalidMessage).
+				WithDetail("error", fmt.Sprintf("unsupported content part type: %s", part.Type))
+		}
+	}
+	return result, nil
 }
 
 func convertToFloat32Slice(input []float64) []float32 {

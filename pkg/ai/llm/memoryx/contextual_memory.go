@@ -339,8 +339,8 @@ func (c *ContextualMemory) recentMessageSet(conversation []llm.Message) map[stri
 func (c *ContextualMemory) messageToText(m llm.Message) string {
 	var parts []string
 
-	if m.Content != "" {
-		parts = append(parts, fmt.Sprintf("[%s]: %s", m.Role, m.Content))
+	if text := m.TextContent(); text != "" {
+		parts = append(parts, fmt.Sprintf("[%s]: %s", m.Role, text))
 	}
 
 	for _, tc := range m.ToolCalls {

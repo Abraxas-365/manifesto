@@ -207,7 +207,7 @@ func (s *SummarizingMemory) summarize(messages []llm.Message) (string, error) {
 	// Format messages into a readable transcript
 	var transcript strings.Builder
 	for _, m := range messages {
-		fmt.Fprintf(&transcript, "[%s]: %s\n", m.Role, m.Content)
+		fmt.Fprintf(&transcript, "[%s]: %s\n", m.Role, m.TextContent())
 		for _, tc := range m.ToolCalls {
 			fmt.Fprintf(&transcript, "  -> tool_call(%s): %s\n", tc.Function.Name, tc.Function.Arguments)
 		}
