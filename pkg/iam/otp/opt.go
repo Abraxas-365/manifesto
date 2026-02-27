@@ -35,9 +35,6 @@ func (o *OTP) IsExpired() bool {
 }
 
 func (o *OTP) Verify() error {
-	if o.Attempts >= o.MaxAttempts {
-		return ErrTooManyAttempts()
-	}
 	if o.IsExpired() {
 		return ErrOTPExpired()
 	}

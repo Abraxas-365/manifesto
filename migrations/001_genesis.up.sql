@@ -314,3 +314,7 @@ UPDATE otps SET max_attempts = 5 WHERE max_attempts IS NULL OR max_attempts = 0;
 
 -- Make it NOT NULL
 ALTER TABLE otps ALTER COLUMN max_attempts SET NOT NULL;
+
+-- Remove hardcoded attempts limit (now enforced by max_attempts column)
+ALTER TABLE otps DROP CONSTRAINT IF EXISTS chk_otp_attempts;
+ALTER TABLE otps ADD CONSTRAINT chk_otp_attempts CHECK (attempts >= 0 AND attempts <= max_attempts);
