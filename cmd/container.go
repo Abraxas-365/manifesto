@@ -96,7 +96,7 @@ func (c *Container) initFileStorage() {
 
 	switch storageMode {
 	case "s3":
-		awsRegion := getEnv("AWS_REGION", c.Config.Email.AWSRegion)
+		awsRegion := getEnv("AWS_REGION", "us-east-1")
 		awsBucket := getEnv("AWS_BUCKET", "manifesto-uploads")
 
 		cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithRegion(awsRegion))
