@@ -133,36 +133,13 @@ func setupMiddleware(app *fiber.App, cfg *config.Config) {
 	}))
 }
 
-// cmd/server.go (only the registerRoutes function changes)
-//
-// Before: container.OAuthHandlers.RegisterRoutes(app)
-// After:  container.IAM.OAuthHandlers.RegisterRoutes(app)
-
 func registerRoutes(app *fiber.App, container *Container) {
 	logx.Info("📝 Registering routes...")
 
-	// ── IAM Routes ───────────────────────────────────────────────────────
-
-	container.IAM.OAuthHandlers.RegisterRoutes(app)
-	logx.Info("  ✓ OAuth routes registered")
-
-	container.IAM.PasswordlessHandlers.RegisterRoutes(app)
-	logx.Info("  ✓ Passwordless auth routes registered")
-
-	// Protected IAM routes
-	protected := app.Group("/api/v1",
-		container.IAM.UnifiedAuthMiddleware.Authenticate(),
-	)
-
-	container.IAM.APIKeyHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
-	logx.Info("  ✓ API key routes registered")
-
-	container.IAM.InvitationHandlers.RegisterRoutes(protected, container.IAM.UnifiedAuthMiddleware)
-	logx.Info("  ✓ Invitation routes registered")
-
-	// ── Recruitment Routes (future) ──────────────────────────────────────
-	// container.Recruitment.JobHandlers.RegisterRoutes(protected)
-	// container.Recruitment.CandidateHandlers.RegisterRoutes(protected)
+	// Add your module routes here
+	// Example:
+	// api := app.Group("/api/v1")
+	// myModule.RegisterRoutes(api)
 
 	logx.Info("✅ All routes registered")
 }
@@ -227,24 +204,10 @@ func infoHandler(cfg *config.Config) fiber.Handler {
 		return c.JSON(fiber.Map{
 			"service":     "Manifesto API",
 			"version":     "1.0.0",
-			"description": "AI-Powered Applicant Tracking System",
 			"environment": cfg.Server.Environment,
-			"features": []string{
-				"Multi-tenant architecture",
-				"OAuth authentication (Google, Microsoft)",
-				"Passwordless authentication (OTP-based)",
-				"API key management",
-				"Role-based access control (RBAC)",
-				"Account linking (OAuth + OTP)",
-				"User invitations",
-			},
 			"endpoints": fiber.Map{
 				"docs":   "/api/v1/docs",
 				"health": "/health",
-			},
-			"authentication": fiber.Map{
-				"oauth_providers": getEnabledOAuthProviders(cfg),
-				"passwordless":    true,
 			},
 		})
 	}
@@ -256,76 +219,7 @@ func apiDocsHandler(cfg *config.Config) fiber.Handler {
 		return c.JSON(fiber.Map{
 			"api_version": "v1",
 			"base_url":    cfg.Server.BaseURL,
-			"endpoints": fiber.Map{
-				"authentication": fiber.Map{
-					"oauth": fiber.Map{
-						"login":    "POST /auth/login",
-						"callback": "GET /auth/callback/:provider",
-						"refresh":  "POST /auth/refresh",
-						"logout":   "POST /auth/logout",
-						"me":       "GET /auth/me",
-					},
-					"passwordless": fiber.Map{
-						"tenant_lookup":   "POST /auth/passwordless/tenants",
-						"signup_initiate": "POST /auth/passwordless/signup/initiate",
-						"signup_verify":   "POST /auth/passwordless/signup/verify",
-						"login_initiate":  "POST /auth/passwordless/login/initiate",
-						"login_verify":    "POST /auth/passwordless/login/verify",
-						"resend_otp":      "POST /auth/passwordless/resend-otp",
-					},
-				},
-				"iam": fiber.Map{
-					"api_keys": fiber.Map{
-						"list":   "GET /api/v1/api-keys",
-						"create": "POST /api/v1/api-keys",
-						"get":    "GET /api/v1/api-keys/:id",
-						"update": "PUT /api/v1/api-keys/:id",
-						"revoke": "POST /api/v1/api-keys/:id/revoke",
-						"delete": "DELETE /api/v1/api-keys/:id",
-					},
-					"invitations": fiber.Map{
-						"list":     "GET /api/v1/invitations",
-						"pending":  "GET /api/v1/invitations/pending",
-						"create":   "POST /api/v1/invitations",
-						"get":      "GET /api/v1/invitations/:id",
-						"validate": "GET /api/v1/invitations/public/validate?token=...",
-						"revoke":   "POST /api/v1/invitations/:id/revoke",
-						"delete":   "DELETE /api/v1/invitations/:id",
-					},
-				},
-			},
-			"authentication_methods": fiber.Map{
-				"types": []string{"OAuth (Google/Microsoft)", "Passwordless OTP", "API Key"},
-				"headers": fiber.Map{
-					"jwt":     "Authorization: Bearer <jwt_token>",
-					"api_key": "X-API-Key: <api_key> OR Authorization: Bearer <api_key>",
-					"cookie":  "Cookie: access_token=<jwt_token>",
-				},
-				"oauth_providers": getEnabledOAuthProviders(cfg),
-				"passwordless": fiber.Map{
-					"enabled":      true,
-					"method":       "OTP via email",
-					"otp_length":   cfg.Auth.OTP.CodeLength,
-					"otp_ttl":      cfg.Auth.OTP.ExpirationTime.String(),
-					"max_attempts": cfg.Auth.OTP.MaxAttempts,
-				},
-				"account_linking": fiber.Map{
-					"enabled":     true,
-					"description": "Users can link OAuth and OTP authentication to the same account",
-				},
-			},
-			"rate_limiting": fiber.Map{
-				"otp_requests": fmt.Sprintf("1 per %s", cfg.Auth.OTP.RateLimitWindow),
-			},
-			"config": fiber.Map{
-				"jwt_ttl": fiber.Map{
-					"access_token":  cfg.Auth.JWT.AccessTokenTTL.String(),
-					"refresh_token": cfg.Auth.JWT.RefreshTokenTTL.String(),
-				},
-				"session_ttl":                        cfg.Auth.Session.ExpirationTime.String(),
-				"invitation_default_expiration_days": cfg.Auth.Invitation.DefaultExpirationDays,
-				"otp_expiration":                     cfg.Auth.OTP.ExpirationTime.String(),
-			},
+			"endpoints":   fiber.Map{},
 		})
 	}
 }
@@ -406,18 +300,6 @@ func globalErrorHandler(cfg *config.Config) fiber.ErrorHandler {
 // Utility Functions
 // ============================================================================
 
-// getEnabledOAuthProviders returns list of enabled OAuth providers
-func getEnabledOAuthProviders(cfg *config.Config) []string {
-	providers := []string{}
-	if cfg.OAuth.Google.Enabled {
-		providers = append(providers, "google")
-	}
-	if cfg.OAuth.Microsoft.Enabled {
-		providers = append(providers, "microsoft")
-	}
-	return providers
-}
-
 // generateRequestID generates a unique request ID
 func generateRequestID() string {
 	return "req-" + randomString(16)
@@ -438,11 +320,7 @@ func printRouteSummary() {
 	logx.Info("📋 Route Summary:")
 	logx.Info("   ├─ Health: /health")
 	logx.Info("   ├─ Info: /")
-	logx.Info("   ├─ Docs: /api/v1/docs")
-	logx.Info("   ├─ OAuth Auth: /auth/*")
-	logx.Info("   ├─ Passwordless Auth: /auth/passwordless/*")
-	logx.Info("   ├─ API Keys: /api/v1/api-keys/*")
-	logx.Info("   └─ Invitations: /api/v1/invitations/*")
+	logx.Info("   └─ Docs: /api/v1/docs")
 }
 
 // startServer starts the server with graceful shutdown
@@ -456,20 +334,6 @@ func startServer(app *fiber.App, cfg *config.Config, cancel context.CancelFunc) 
 		logx.Infof("📚 API Docs: http://localhost:%s/api/v1/docs", port)
 		logx.Infof("💚 Health Check: http://localhost:%s/health", port)
 		logx.Infof("🔒 Environment: %s", cfg.Server.Environment)
-
-		// Authentication methods
-		logx.Info("")
-		logx.Info("🔐 Authentication Methods:")
-		if cfg.OAuth.Google.Enabled {
-			logx.Info("   ✅ Google OAuth")
-		}
-		if cfg.OAuth.Microsoft.Enabled {
-			logx.Info("   ✅ Microsoft OAuth")
-		}
-		logx.Info("   ✅ Passwordless OTP (Email)")
-		logx.Info("   ✅ API Keys")
-		logx.Info("   ✅ Account Linking (OAuth + OTP)")
-
 		logx.Info("=" + repeatString("=", 70))
 
 		if err := app.Listen(":" + port); err != nil {

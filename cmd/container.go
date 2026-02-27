@@ -13,7 +13,6 @@ import (
 	"github.com/Abraxas-365/manifesto/pkg/fsx"
 	"github.com/Abraxas-365/manifesto/pkg/fsx/fsxlocal"
 	"github.com/Abraxas-365/manifesto/pkg/fsx/fsxs3"
-	"github.com/Abraxas-365/manifesto/pkg/iam/iamcontainer"
 	"github.com/Abraxas-365/manifesto/pkg/logx"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -33,8 +32,7 @@ type Container struct {
 	S3Client   *s3.Client
 
 	// Bounded-context containers
-	IAM *iamcontainer.Container
-	// Recruitment *recruitmentcontainer.Container  // ← future modules plug in here
+	// Add your module containers here
 }
 
 func NewContainer(cfg *config.Config) *Container {
@@ -98,7 +96,7 @@ func (c *Container) initFileStorage() {
 
 	switch storageMode {
 	case "s3":
-		awsRegion := getEnv("AWS_REGION", c.Config.Email.AWSRegion)
+		awsRegion := getEnv("AWS_REGION", "us-east-1")
 		awsBucket := getEnv("AWS_BUCKET", "manifesto-uploads")
 
 		cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithRegion(awsRegion))
@@ -129,19 +127,7 @@ func (c *Container) initFileStorage() {
 
 func (c *Container) initModules() {
 	logx.Info("📦 Initializing modules...")
-
-	c.IAM = iamcontainer.New(iamcontainer.Deps{
-		DB:          c.DB,
-		Redis:       c.Redis,
-		Cfg:         c.Config,
-		OTPNotifier: NewConsoleNotifier(), // TODO: replace with real email service in production
-	})
-
-	// Future modules:
-	// c.Recruitment = recruitmentcontainer.New(recruitmentcontainer.Deps{
-	//     DB:  c.DB,
-	//     Cfg: c.Config,
-	// })
+	// Add your module initialization here
 }
 
 // ---------------------------------------------------------------------------
@@ -150,8 +136,7 @@ func (c *Container) initModules() {
 
 func (c *Container) StartBackgroundServices(ctx context.Context) {
 	logx.Info("🔄 Starting background services...")
-	c.IAM.StartBackgroundServices(ctx)
-	// c.Recruitment.StartBackgroundServices(ctx)
+	// Add your background services here
 }
 
 func (c *Container) Cleanup() {
@@ -181,35 +166,6 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-// ============================================================================
-// Console Notifier for OTP (Development)
-// ============================================================================
-
-// ConsoleNotifier implements the NotificationService interface
-// by printing OTP codes to the terminal/console
-type ConsoleNotifier struct{}
-
-// NewConsoleNotifier creates a new console-based OTP notifier
-func NewConsoleNotifier() *ConsoleNotifier {
-	return &ConsoleNotifier{}
-}
-
-// SendOTP prints the OTP code to the terminal
-func (n *ConsoleNotifier) SendOTP(ctx context.Context, contact string, code string) error {
-	fmt.Println("\n" + repeatString("=", 60))
-	fmt.Println("📧 OTP NOTIFICATION (Console Output)")
-	fmt.Println(repeatString("=", 60))
-	fmt.Printf("📨 To: %s\n", contact)
-	fmt.Printf("🔐 Code: %s\n", code)
-	fmt.Println(repeatString("=", 60))
-	fmt.Println("⚠️  This is console output for development only")
-	fmt.Println("⚠️  In production, configure email service in config")
-	fmt.Println(repeatString("=", 60) + "\n")
-
-	logx.Infof("📧 OTP sent to %s: %s", contact, code)
-	return nil
 }
 
 func repeatString(s string, count int) string {
