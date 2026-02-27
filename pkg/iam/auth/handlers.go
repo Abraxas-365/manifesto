@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// AuthHandlers maneja las rutas de autenticación con Fiber
+// AuthHandlers handles authentication routes with Fiber
 type AuthHandlers struct {
 	oauthServices  map[iam.OAuthProvider]OAuthService
 	tokenService   TokenService
@@ -28,10 +28,11 @@ type AuthHandlers struct {
 	sessionRepo    SessionRepository
 	stateManager   StateManager
 	invitationRepo invitation.InvitationRepository
+	auditService   AuditService
 	config         *config.Config
 }
 
-// NewAuthHandlers crea un nuevo handler de autenticación
+// NewAuthHandlers creates a new authentication handler
 func NewAuthHandlers(
 	oauthServices map[iam.OAuthProvider]OAuthService,
 	tokenService TokenService,
@@ -41,6 +42,7 @@ func NewAuthHandlers(
 	sessionRepo SessionRepository,
 	stateManager StateManager,
 	invitationRepo invitation.InvitationRepository,
+	auditService AuditService,
 	config *config.Config,
 ) *AuthHandlers {
 	return &AuthHandlers{
@@ -52,6 +54,7 @@ func NewAuthHandlers(
 		sessionRepo:    sessionRepo,
 		stateManager:   stateManager,
 		invitationRepo: invitationRepo,
+		auditService:   auditService,
 		config:         config,
 	}
 }
@@ -205,8 +208,8 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Buscar o crear usuario
-	userEntity, tenantEntity, err := ah.findOrCreateUser(c.Context(), userInfo, provider, stateData)
+	// Find or create user
+	userEntity, tenantEntity, err := ah.findOrCreateUser(c.Context(), userInfo, provider, stateData, c.IP())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
@@ -271,6 +274,9 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 	if err := ah.userRepo.Save(c.Context(), *userEntity); err != nil {
 		// Log error pero no fallar
 	}
+
+	// Audit: successful OAuth login
+	ah.auditService.LogLoginAttempt(c.Context(), userEntity.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), true, c.IP(), c.Get("User-Agent"))
 
 	response := TokenResponse{
 		AccessToken:  accessToken,
@@ -384,6 +390,9 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
+	// Audit: token refresh
+	ah.auditService.LogTokenRefresh(c.Context(), userEntity.ID, tenantEntity.ID, c.IP())
+
 	// Update access token cookie
 	c.Cookie(&fiber.Cookie{
 		Name:     "access_token",
@@ -443,15 +452,18 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	// Revocar todos los refresh tokens del usuario
+	// Revoke all refresh tokens
 	if err := ah.tokenRepo.RevokeAllUserTokens(c.Context(), *authContext.UserID); err != nil {
-		// Log error pero no fallar
+		// Log error but don't fail
 	}
 
-	// Revocar todas las sesiones del usuario
+	// Revoke all sessions
 	if err := ah.sessionRepo.RevokeAllUserSessions(c.Context(), *authContext.UserID); err != nil {
-		// Log error pero no fallar
+		// Log error but don't fail
 	}
+
+	// Audit: logout
+	ah.auditService.LogLogout(c.Context(), *authContext.UserID, authContext.TenantID, c.IP())
 
 	// Clear cookies
 	c.Cookie(&fiber.Cookie{
@@ -536,8 +548,8 @@ func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 	})
 }
 
-// 🔥 findOrCreateUser WITH ACCOUNT LINKING
-func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUserInfo, provider iam.OAuthProvider, stateData map[string]interface{}) (*user.User, *tenant.Tenant, error) {
+// findOrCreateUser handles user lookup, creation, and account linking for OAuth
+func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUserInfo, provider iam.OAuthProvider, stateData map[string]interface{}, ip string) (*user.User, *tenant.Tenant, error) {
 	var tenantEntity *tenant.Tenant
 	var invitationToken string
 	var invitationScopes []string
@@ -576,10 +588,9 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 		return nil, nil, errx.New("invitation required for registration", errx.TypeAuthorization)
 	}
 
-	// 🔥 ACCOUNT LINKING: Buscar usuario existente
+	// Account linking: look up existing user
 	existingUser, err := ah.userRepo.FindByEmail(ctx, userInfo.Email, tenantEntity.ID)
 	if err == nil {
-		// Usuario existe - link OAuth if not already linked
 		if existingUser.OAuthProvider != provider || existingUser.OAuthProviderID != userInfo.ID {
 			existingUser.LinkOAuth(provider, userInfo.ID)
 			existingUser.UpdateProfile(userInfo.Name, userInfo.Picture)
@@ -587,6 +598,7 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 			if err := ah.userRepo.Save(ctx, *existingUser); err != nil {
 				return nil, nil, err
 			}
+			ah.auditService.LogAccountLinked(ctx, existingUser.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), ip)
 		}
 		return existingUser, tenantEntity, nil
 	}
@@ -604,7 +616,7 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 		userScopes = scopes.GetScopesByGroup("viewer")
 	}
 
-	// 🔥 Crear nuevo usuario con OAuth (OTPEnabled = false por defecto)
+	// Create new user with OAuth (OTPEnabled = false by default)
 	newUser := &user.User{
 		ID:              kernel.NewUserID(generateID()),
 		TenantID:        tenantEntity.ID,
@@ -621,21 +633,24 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 		UpdatedAt:       time.Now(),
 	}
 
-	// Guardar usuario
+	// Save user
 	if err := ah.userRepo.Save(ctx, *newUser); err != nil {
 		return nil, nil, err
 	}
 
-	// Incrementar contador de usuarios del tenant
+	// Increment tenant user count
 	if err := tenantEntity.AddUser(); err != nil {
 		ah.userRepo.Delete(ctx, newUser.ID, tenantEntity.ID)
 		return nil, nil, err
 	}
 
-	// Guardar tenant actualizado
+	// Save updated tenant
 	if err := ah.tenantRepo.Save(ctx, *tenantEntity); err != nil {
-		// Log error pero no fallar
+		// Log error but don't fail
 	}
+
+	// Audit: account created
+	ah.auditService.LogAccountCreated(ctx, newUser.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), ip)
 
 	// Accept the invitation
 	if invitationToken != "" {

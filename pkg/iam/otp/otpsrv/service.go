@@ -75,10 +75,13 @@ func (s *OTPService) GenerateOTP(ctx context.Context, contact string, purpose ot
 	return newOTP, nil
 }
 
-// VerifyOTP validates an OTP code
-func (s *OTPService) VerifyOTP(ctx context.Context, contact string, code string) (*otp.OTP, error) {
-	otpEntity, err := s.repo.GetByContactAndCode(ctx, contact, code)
-	if err != nil {
+// VerifyOTP validates an OTP code. Looks up by contact+purpose (not code)
+// so that attempts are always incremented regardless of whether the code matches.
+func (s *OTPService) VerifyOTP(ctx context.Context, contact string, code string, purpose otp.OTPPurpose) (*otp.OTP, error) {
+	// Look up by contact, not by code — this ensures we always find the OTP
+	// entity and can track attempts even when the wrong code is provided.
+	otpEntity, err := s.repo.GetLatestByContact(ctx, contact, purpose)
+	if err != nil || otpEntity == nil {
 		return nil, otp.ErrInvalidOTP()
 	}
 
@@ -86,32 +89,34 @@ func (s *OTPService) VerifyOTP(ctx context.Context, contact string, code string)
 		return nil, otp.ErrOTPExpired()
 	}
 
-	if otpEntity.Attempts >= otpEntity.MaxAttempts {
-		return nil, otp.ErrTooManyAttempts()
-	}
-
 	if otpEntity.VerifiedAt != nil {
 		return nil, otp.ErrOTPAlreadyUsed()
 	}
 
+	if otpEntity.Attempts >= otpEntity.MaxAttempts {
+		return nil, otp.ErrTooManyAttempts()
+	}
+
+	// Always increment attempts before checking the code
 	otpEntity.IncrementAttempts()
 
-	if otpEntity.Code == code {
-		if err := otpEntity.Verify(); err != nil {
-			return nil, err
-		}
-
+	if otpEntity.Code != code {
+		// Wrong code — persist the incremented attempt count
 		if err := s.repo.Update(ctx, otpEntity); err != nil {
-			return nil, errx.Wrap(err, "failed to update OTP", errx.TypeInternal)
+			return nil, errx.Wrap(err, "failed to update OTP attempts", errx.TypeInternal)
 		}
+		remainingAttempts := otpEntity.MaxAttempts - otpEntity.Attempts
+		return nil, otp.ErrInvalidOTP().WithDetail("attempts_remaining", remainingAttempts)
+	}
 
-		return otpEntity, nil
+	// Correct code — verify and persist
+	if err := otpEntity.Verify(); err != nil {
+		return nil, err
 	}
 
 	if err := s.repo.Update(ctx, otpEntity); err != nil {
-		return nil, errx.Wrap(err, "failed to update OTP attempts", errx.TypeInternal)
+		return nil, errx.Wrap(err, "failed to update OTP", errx.TypeInternal)
 	}
 
-	remainingAttempts := otpEntity.MaxAttempts - otpEntity.Attempts
-	return nil, otp.ErrInvalidOTP().WithDetail("attempts_remaining", remainingAttempts)
+	return otpEntity, nil
 }

@@ -158,18 +158,18 @@ func (s *InvitationService) ValidateInvitationToken(ctx context.Context, token s
 	if err != nil {
 		return &invitation.ValidateInvitationResponse{
 			Valid:   false,
-			Message: "Invitación no encontrada",
+			Message: "Invitation not found",
 		}, nil
 	}
 
 	if !inv.CanBeAccepted() {
-		message := "Invitación inválida"
+		message := "Invalid invitation"
 		if inv.IsExpired() {
-			message = "Invitación expirada"
+			message = "Invitation expired"
 		} else if inv.Status == invitation.InvitationStatusAccepted {
-			message = "Invitación ya aceptada"
+			message = "Invitation already accepted"
 		} else if inv.Status == invitation.InvitationStatusRevoked {
-			message = "Invitación revocada"
+			message = "Invitation revoked"
 		}
 
 		return &invitation.ValidateInvitationResponse{
@@ -182,7 +182,7 @@ func (s *InvitationService) ValidateInvitationToken(ctx context.Context, token s
 	return &invitation.ValidateInvitationResponse{
 		Valid:      true,
 		Invitation: &invDTO,
-		Message:    "Invitación válida",
+		Message:    "Valid invitation",
 	}, nil
 }
 

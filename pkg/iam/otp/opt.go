@@ -41,9 +41,6 @@ func (o *OTP) Verify() error {
 	if o.IsExpired() {
 		return ErrOTPExpired()
 	}
-	if o.Attempts >= 5 {
-		return ErrTooManyAttempts()
-	}
 	now := time.Now()
 	o.VerifiedAt = &now
 	return nil

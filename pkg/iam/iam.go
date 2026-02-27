@@ -7,20 +7,18 @@ import (
 )
 
 // ============================================================================
-// Error Registry - Registro de errores del módulo IAM
+// Error Registry
 // ============================================================================
 
 var ErrRegistry = errx.NewRegistry("IAM")
 
-// Códigos de error del módulo IAM
 var (
-	// Errores comunes
-	CodeUnauthorized = ErrRegistry.Register("UNAUTHORIZED", errx.TypeAuthorization, http.StatusUnauthorized, "No autorizado")
-	CodeInvalidToken = ErrRegistry.Register("INVALID_TOKEN", errx.TypeAuthorization, http.StatusUnauthorized, "Token inválido o expirado")
-	CodeAccessDenied = ErrRegistry.Register("ACCESS_DENIED", errx.TypeAuthorization, http.StatusForbidden, "Acceso denegado")
+	CodeUnauthorized = ErrRegistry.Register("UNAUTHORIZED", errx.TypeAuthorization, http.StatusUnauthorized, "Unauthorized")
+	CodeInvalidToken = ErrRegistry.Register("INVALID_TOKEN", errx.TypeAuthorization, http.StatusUnauthorized, "Invalid or expired token")
+	CodeAccessDenied = ErrRegistry.Register("ACCESS_DENIED", errx.TypeAuthorization, http.StatusForbidden, "Access denied")
 )
 
-// Helper functions para crear errores comunes
+// Helper functions
 func ErrUnauthorized() *errx.Error {
 	return ErrRegistry.New(CodeUnauthorized)
 }
@@ -33,7 +31,7 @@ func ErrAccessDenied() *errx.Error {
 	return ErrRegistry.New(CodeAccessDenied)
 }
 
-// OAuthProvider representa los proveedores OAuth soportados
+// OAuthProvider represents supported OAuth providers
 type OAuthProvider string
 
 const (
@@ -42,7 +40,7 @@ const (
 	OAuthProviderAuth0     OAuthProvider = "AUTH0"
 )
 
-// GetProviderName retorna el nombre legible del proveedor
+// GetProviderName returns the human-readable provider name
 func (p OAuthProvider) GetProviderName() string {
 	switch p {
 	case OAuthProviderGoogle:

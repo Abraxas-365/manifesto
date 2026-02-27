@@ -25,6 +25,7 @@ type PasswordlessAuthHandlers struct {
 	sessionRepo    SessionRepository
 	invitationRepo invitation.InvitationRepository
 	otpService     *otpsrv.OTPService
+	auditService   AuditService
 	config         *config.Config
 }
 
@@ -36,6 +37,7 @@ func NewPasswordlessAuthHandlers(
 	sessionRepo SessionRepository,
 	invitationRepo invitation.InvitationRepository,
 	otpService *otpsrv.OTPService,
+	auditService AuditService,
 	config *config.Config,
 ) *PasswordlessAuthHandlers {
 	return &PasswordlessAuthHandlers{
@@ -46,6 +48,7 @@ func NewPasswordlessAuthHandlers(
 		sessionRepo:    sessionRepo,
 		invitationRepo: invitationRepo,
 		otpService:     otpService,
+		auditService:   auditService,
 		config:         config,
 	}
 }
@@ -248,6 +251,9 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 				})
 			}
 
+			// Audit: OTP linked to existing OAuth account
+			h.auditService.LogAccountLinked(c.Context(), existingUser.ID, tenantID, "otp", c.IP())
+
 			// Generate and send OTP
 			otpEntity, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeVerification)
 			if err != nil {
@@ -311,6 +317,9 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 		h.tenantRepo.Save(c.Context(), *tenantEntity)
 	}
 
+	// Audit: account created via OTP
+	h.auditService.LogAccountCreated(c.Context(), newUser.ID, tenantID, "otp", c.IP())
+
 	// 10. Mark invitation as accepted
 	if err := inv.Accept(newUser.ID); err == nil {
 		h.invitationRepo.Save(c.Context(), *inv)
@@ -353,7 +362,7 @@ func (h *PasswordlessAuthHandlers) VerifySignup(c *fiber.Ctx) error {
 	}
 
 	// 1. Verify OTP
-	_, err := h.otpService.VerifyOTP(c.Context(), req.Email, req.Code)
+	_, err := h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -520,7 +529,7 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 	}
 
 	// 1. Verify OTP
-	_, err := h.otpService.VerifyOTP(c.Context(), req.Email, req.Code)
+	_, err := h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Invalid or expired code",
@@ -628,7 +637,10 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		Path:     h.config.Auth.Cookie.Path,
 	})
 
-	// 11. Return tokens and user info
+	// 11. Audit: successful OTP login
+	h.auditService.LogLoginAttempt(c.Context(), userEntity.ID, tenantEntity.ID, "otp", true, c.IP(), c.Get("User-Agent"))
+
+	// 12. Return tokens and user info
 	return c.JSON(TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshTokenStr,

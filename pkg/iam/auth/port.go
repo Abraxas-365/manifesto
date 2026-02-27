@@ -6,7 +6,7 @@ import (
 	"github.com/Abraxas-365/manifesto/pkg/kernel"
 )
 
-// TokenRepository define el contrato para la persistencia de tokens
+// TokenRepository defines the contract for token persistence
 type TokenRepository interface {
 	SaveRefreshToken(ctx context.Context, token RefreshToken) error
 	FindRefreshToken(ctx context.Context, tokenValue string) (*RefreshToken, error)
@@ -15,7 +15,7 @@ type TokenRepository interface {
 	CleanExpiredTokens(ctx context.Context) error
 }
 
-// SessionRepository define el contrato para la persistencia de sesiones
+// SessionRepository defines the contract for session persistence
 type SessionRepository interface {
 	SaveSession(ctx context.Context, session UserSession) error
 	FindSession(ctx context.Context, sessionID string) (*UserSession, error)
@@ -26,7 +26,7 @@ type SessionRepository interface {
 	CleanExpiredSessions(ctx context.Context) error
 }
 
-// PasswordResetRepository define el contrato para tokens de reset de contraseña
+// PasswordResetRepository defines the contract for password reset tokens
 type PasswordResetRepository interface {
 	SaveResetToken(ctx context.Context, token PasswordResetToken) error
 	FindResetToken(ctx context.Context, tokenValue string) (*PasswordResetToken, error)
@@ -34,21 +34,24 @@ type PasswordResetRepository interface {
 	CleanExpiredResetTokens(ctx context.Context) error
 }
 
-// TokenService define el contrato para el manejo de tokens JWT
+// TokenService defines the contract for JWT token management
 type TokenService interface {
 	GenerateAccessToken(userID kernel.UserID, tenantID kernel.TenantID, claims map[string]any) (string, error)
 	ValidateAccessToken(token string) (*TokenClaims, error)
 	GenerateRefreshToken(userID kernel.UserID) (string, error)
 }
 
-// AuditService define el contrato para logs de autenticación
+// AuditService defines the contract for authentication audit logging
 type AuditService interface {
-	LogLoginAttempt(ctx context.Context, userID kernel.UserID, success bool, ipAddress string) error
-	LogPasswordChange(ctx context.Context, userID kernel.UserID, ipAddress string) error
-	LogTokenRefresh(ctx context.Context, userID kernel.UserID, ipAddress string) error
+	LogLoginAttempt(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, success bool, ip string, userAgent string)
+	LogLogout(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, ip string)
+	LogTokenRefresh(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, ip string)
+	LogOTPVerification(ctx context.Context, contact string, success bool, ip string)
+	LogAccountCreated(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, ip string)
+	LogAccountLinked(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, ip string)
 }
 
-// Invitation representa una invitación (para evitar dependencia circular)
+// Invitation represents an invitation (to avoid circular dependency)
 type Invitation interface {
 	GetID() string
 	GetTenantID() kernel.TenantID

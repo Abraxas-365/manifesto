@@ -3,7 +3,6 @@ package otpinfra
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/Abraxas-365/manifesto/pkg/errx"
@@ -57,11 +56,6 @@ func (r *PostgresOTPRepository) GetByContactAndCode(ctx context.Context, contact
         LIMIT 1
     `
 
-	// 🔍 DEBUG
-	fmt.Printf("🔍 DEBUG GetByContactAndCode:\n")
-	fmt.Printf("   Contact: '%s' (len=%d)\n", contact, len(contact))
-	fmt.Printf("   Code: '%s' (len=%d)\n", code, len(code))
-
 	var o otp.OTP
 	var verifiedAt sql.NullTime
 	var purposeStr string
@@ -79,22 +73,11 @@ func (r *PostgresOTPRepository) GetByContactAndCode(ctx context.Context, contact
 	)
 
 	if err == sql.ErrNoRows {
-		fmt.Printf("   ❌ No OTP found in database\n")
 		return nil, otp.ErrInvalidOTP()
 	}
 	if err != nil {
-		fmt.Printf("   ❌ Query error: %v\n", err)
 		return nil, errx.Wrap(err, "failed to get OTP", errx.TypeInternal)
 	}
-
-	fmt.Printf("   ✅ OTP found:\n")
-	fmt.Printf("      ID: %s\n", o.ID)
-	fmt.Printf("      Code: '%s' (len=%d)\n", o.Code, len(o.Code))
-	fmt.Printf("      Contact: '%s'\n", o.Contact)
-	fmt.Printf("      MaxAttempts: %d\n", o.MaxAttempts)
-	fmt.Printf("      Attempts: %d\n", o.Attempts)
-	fmt.Printf("      ExpiresAt: %s\n", o.ExpiresAt)
-	fmt.Printf("      VerifiedAt: %v\n", verifiedAt)
 
 	o.Purpose = otp.OTPPurpose(purposeStr)
 	if verifiedAt.Valid {

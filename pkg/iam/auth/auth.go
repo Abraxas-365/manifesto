@@ -12,7 +12,7 @@ import (
 // Token Types
 // ============================================================================
 
-// RefreshToken representa un token de refresh
+// RefreshToken represents a refresh token
 type RefreshToken struct {
 	ID        string          `db:"id" json:"id"`
 	Token     string          `db:"token" json:"token"`
@@ -23,7 +23,7 @@ type RefreshToken struct {
 	IsRevoked bool            `db:"is_revoked" json:"is_revoked"`
 }
 
-// UserSession representa una sesión de usuario
+// UserSession represents a user session
 type UserSession struct {
 	ID           string          `db:"id" json:"id"`
 	UserID       kernel.UserID   `db:"user_id" json:"user_id"`
@@ -36,7 +36,7 @@ type UserSession struct {
 	LastActivity time.Time       `db:"last_activity" json:"last_activity"`
 }
 
-// PasswordResetToken representa un token para resetear contraseña
+// PasswordResetToken represents a password reset token
 type PasswordResetToken struct {
 	ID        string        `db:"id" json:"id"`
 	Token     string        `db:"token" json:"token"`
@@ -46,7 +46,7 @@ type PasswordResetToken struct {
 	IsUsed    bool          `db:"is_used" json:"is_used"`
 }
 
-// TokenClaims representa los claims de un JWT
+// TokenClaims represents JWT claims
 type TokenClaims struct {
 	UserID    kernel.UserID   `json:"user_id"`
 	TenantID  kernel.TenantID `json:"tenant_id"`
@@ -61,60 +61,59 @@ type TokenClaims struct {
 // Domain Methods
 // ============================================================================
 
-// IsExpired verifica si el refresh token ha expirado
+// IsExpired checks if the refresh token has expired
 func (r *RefreshToken) IsExpired() bool {
 	return time.Now().After(r.ExpiresAt)
 }
 
-// IsValid verifica si el refresh token es válido
+// IsValid checks if the refresh token is valid
 func (r *RefreshToken) IsValid() bool {
 	return !r.IsRevoked && !r.IsExpired()
 }
 
-// IsExpired verifica si la sesión ha expirado
+// IsExpired checks if the session has expired
 func (s *UserSession) IsExpired() bool {
 	return time.Now().After(s.ExpiresAt)
 }
 
-// UpdateActivity actualiza la última actividad de la sesión
+// UpdateActivity updates the session's last activity
 func (s *UserSession) UpdateActivity() {
 	s.LastActivity = time.Now()
 }
 
-// IsExpired verifica si el token de reset ha expirado
+// IsExpired checks if the reset token has expired
 func (p *PasswordResetToken) IsExpired() bool {
 	return time.Now().After(p.ExpiresAt)
 }
 
-// IsValid verifica si el token de reset es válido
+// IsValid checks if the reset token is valid
 func (p *PasswordResetToken) IsValid() bool {
 	return !p.IsUsed && !p.IsExpired()
 }
 
-// MarkAsUsed marca el token como usado
+// MarkAsUsed marks the token as used
 func (p *PasswordResetToken) MarkAsUsed() {
 	p.IsUsed = true
 }
 
 // ============================================================================
-// Error Registry - Errores específicos de Auth
+// Error Registry
 // ============================================================================
 
 var ErrRegistry = errx.NewRegistry("AUTH")
 
-// Códigos de error
 var (
-	CodeInvalidRefreshToken      = ErrRegistry.Register("INVALID_REFRESH_TOKEN", errx.TypeAuthorization, http.StatusUnauthorized, "Refresh token inválido")
-	CodeExpiredRefreshToken      = ErrRegistry.Register("EXPIRED_REFRESH_TOKEN", errx.TypeAuthorization, http.StatusUnauthorized, "Refresh token expirado")
-	CodeInvalidOAuthProvider     = ErrRegistry.Register("INVALID_OAUTH_PROVIDER", errx.TypeValidation, http.StatusBadRequest, "Proveedor OAuth no válido")
-	CodeOAuthAuthorizationFailed = ErrRegistry.Register("OAUTH_AUTHORIZATION_FAILED", errx.TypeExternal, http.StatusBadRequest, "Falló la autorización OAuth")
-	CodeInvalidState             = ErrRegistry.Register("INVALID_STATE", errx.TypeValidation, http.StatusBadRequest, "Estado OAuth inválido")
-	CodeTokenGenerationFailed    = ErrRegistry.Register("TOKEN_GENERATION_FAILED", errx.TypeInternal, http.StatusInternalServerError, "Error al generar token")
-	CodeTokenValidationFailed    = ErrRegistry.Register("TOKEN_VALIDATION_FAILED", errx.TypeAuthorization, http.StatusUnauthorized, "Error al validar token")
-	CodeOAuthCallbackError       = ErrRegistry.Register("OAUTH_CALLBACK_ERROR", errx.TypeExternal, http.StatusBadRequest, "Error en el callback OAuth")
+	CodeInvalidRefreshToken      = ErrRegistry.Register("INVALID_REFRESH_TOKEN", errx.TypeAuthorization, http.StatusUnauthorized, "Invalid refresh token")
+	CodeExpiredRefreshToken      = ErrRegistry.Register("EXPIRED_REFRESH_TOKEN", errx.TypeAuthorization, http.StatusUnauthorized, "Expired refresh token")
+	CodeInvalidOAuthProvider     = ErrRegistry.Register("INVALID_OAUTH_PROVIDER", errx.TypeValidation, http.StatusBadRequest, "Invalid OAuth provider")
+	CodeOAuthAuthorizationFailed = ErrRegistry.Register("OAUTH_AUTHORIZATION_FAILED", errx.TypeExternal, http.StatusBadRequest, "OAuth authorization failed")
+	CodeInvalidState             = ErrRegistry.Register("INVALID_STATE", errx.TypeValidation, http.StatusBadRequest, "Invalid OAuth state")
+	CodeTokenGenerationFailed    = ErrRegistry.Register("TOKEN_GENERATION_FAILED", errx.TypeInternal, http.StatusInternalServerError, "Token generation failed")
+	CodeTokenValidationFailed    = ErrRegistry.Register("TOKEN_VALIDATION_FAILED", errx.TypeAuthorization, http.StatusUnauthorized, "Token validation failed")
+	CodeOAuthCallbackError       = ErrRegistry.Register("OAUTH_CALLBACK_ERROR", errx.TypeExternal, http.StatusBadRequest, "OAuth callback error")
 )
 
-// Helper functions para crear errores
+// Helper functions
 func ErrInvalidRefreshToken() *errx.Error {
 	return ErrRegistry.New(CodeInvalidRefreshToken)
 }

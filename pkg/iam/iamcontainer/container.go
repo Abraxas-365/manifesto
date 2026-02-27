@@ -169,6 +169,10 @@ func New(deps Deps) *Container {
 		logx.Info("  ✅ Microsoft OAuth enabled")
 	}
 
+	// ── Audit service ────────────────────────────────────────────────────
+
+	auditService := authinfra.NewLogxAuditService()
+
 	// ── Auth handlers ────────────────────────────────────────────────────
 
 	c.OAuthHandlers = auth.NewAuthHandlers(
@@ -180,6 +184,7 @@ func New(deps Deps) *Container {
 		sessionRepo,
 		stateManager,
 		invitationRepo,
+		auditService,
 		deps.Cfg,
 	)
 
@@ -191,6 +196,7 @@ func New(deps Deps) *Container {
 		sessionRepo,
 		invitationRepo,
 		c.OTPService,
+		auditService,
 		deps.Cfg,
 	)
 

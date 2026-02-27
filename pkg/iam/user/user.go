@@ -385,27 +385,26 @@ type AvailableScopesResponse struct {
 }
 
 // ============================================================================
-// Error Registry - Errores específicos de User
+// Error Registry
 // ============================================================================
 
 var ErrRegistry = errx.NewRegistry("USER")
 
-// Códigos de error
 var (
-	CodeUserNotFound         = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Usuario no encontrado")
-	CodeUserAlreadyExists    = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "El usuario ya existe")
-	CodeUserNotInTenant      = ErrRegistry.Register("NOT_IN_TENANT", errx.TypeAuthorization, http.StatusForbidden, "Usuario no pertenece a la empresa")
-	CodeEmailNotVerified     = ErrRegistry.Register("EMAIL_NOT_VERIFIED", errx.TypeBusiness, http.StatusPreconditionFailed, "Email no verificado")
-	CodeUserSuspended        = ErrRegistry.Register("SUSPENDED", errx.TypeBusiness, http.StatusForbidden, "Usuario suspendido")
-	CodeOnboardingRequired   = ErrRegistry.Register("ONBOARDING_REQUIRED", errx.TypeBusiness, http.StatusPreconditionRequired, "Se requiere completar el onboarding")
-	CodeInvalidStatus        = ErrRegistry.Register("INVALID_STATUS", errx.TypeBusiness, http.StatusBadRequest, "Estado de usuario inválido para esta operación")
-	CodeInvalidScopeTemplate = ErrRegistry.Register("INVALID_SCOPE_TEMPLATE", errx.TypeValidation, http.StatusBadRequest, "Plantilla de scopes no encontrada")
-	CodeInvalidScopes        = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Scopes inválidos")
-	CodeScopeNotFound        = ErrRegistry.Register("SCOPE_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Scope no encontrado")
-	CodeInsufficientScopes   = ErrRegistry.Register("INSUFFICIENT_SCOPES", errx.TypeAuthorization, http.StatusForbidden, "Scopes insuficientes")
+	CodeUserNotFound         = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "User not found")
+	CodeUserAlreadyExists    = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "User already exists")
+	CodeUserNotInTenant      = ErrRegistry.Register("NOT_IN_TENANT", errx.TypeAuthorization, http.StatusForbidden, "User does not belong to this tenant")
+	CodeEmailNotVerified     = ErrRegistry.Register("EMAIL_NOT_VERIFIED", errx.TypeBusiness, http.StatusPreconditionFailed, "Email not verified")
+	CodeUserSuspended        = ErrRegistry.Register("SUSPENDED", errx.TypeBusiness, http.StatusForbidden, "User suspended")
+	CodeOnboardingRequired   = ErrRegistry.Register("ONBOARDING_REQUIRED", errx.TypeBusiness, http.StatusPreconditionRequired, "Onboarding required")
+	CodeInvalidStatus        = ErrRegistry.Register("INVALID_STATUS", errx.TypeBusiness, http.StatusBadRequest, "Invalid user status for this operation")
+	CodeInvalidScopeTemplate = ErrRegistry.Register("INVALID_SCOPE_TEMPLATE", errx.TypeValidation, http.StatusBadRequest, "Scope template not found")
+	CodeInvalidScopes        = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
+	CodeScopeNotFound        = ErrRegistry.Register("SCOPE_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Scope not found")
+	CodeInsufficientScopes   = ErrRegistry.Register("INSUFFICIENT_SCOPES", errx.TypeAuthorization, http.StatusForbidden, "Insufficient scopes")
 )
 
-// Helper functions para crear errores
+// Helper functions
 func ErrUserNotFound() *errx.Error {
 	return ErrRegistry.New(CodeUserNotFound)
 }

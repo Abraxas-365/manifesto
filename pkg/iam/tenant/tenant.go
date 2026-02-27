@@ -312,25 +312,24 @@ type TenantUsageResponse struct {
 }
 
 // ============================================================================
-// Error Registry - Errores específicos de Tenant
+// Error Registry
 // ============================================================================
 
 var ErrRegistry = errx.NewRegistry("TENANT")
 
-// Códigos de error
 var (
-	CodeTenantNotFound      = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Empresa no encontrada")
-	CodeTenantAlreadyExists = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "La empresa ya existe")
-	CodeTenantSuspended     = ErrRegistry.Register("SUSPENDED", errx.TypeBusiness, http.StatusForbidden, "Empresa suspendida")
-	CodeTrialExpired        = ErrRegistry.Register("TRIAL_EXPIRED", errx.TypeBusiness, http.StatusPaymentRequired, "Período de prueba expirado")
-	CodeSubscriptionExpired = ErrRegistry.Register("SUBSCRIPTION_EXPIRED", errx.TypeBusiness, http.StatusPaymentRequired, "Suscripción expirada")
-	CodeMaxUsersReached     = ErrRegistry.Register("MAX_USERS_REACHED", errx.TypeBusiness, http.StatusForbidden, "Máximo de usuarios alcanzado")
-	CodeTooManyUsersForPlan = ErrRegistry.Register("TOO_MANY_USERS_FOR_PLAN", errx.TypeBusiness, http.StatusBadRequest, "El nuevo plan no permite tantos usuarios")
-	CodeTenantHasUsers      = ErrRegistry.Register("TENANT_HAS_USERS", errx.TypeBusiness, http.StatusConflict, "No se puede eliminar tenant con usuarios activos")
-	CodeInvalidPlanUpgrade  = ErrRegistry.Register("INVALID_PLAN_UPGRADE", errx.TypeBusiness, http.StatusBadRequest, "Actualización de plan inválida")
+	CodeTenantNotFound      = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Tenant not found")
+	CodeTenantAlreadyExists = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "Tenant already exists")
+	CodeTenantSuspended     = ErrRegistry.Register("SUSPENDED", errx.TypeBusiness, http.StatusForbidden, "Tenant suspended")
+	CodeTrialExpired        = ErrRegistry.Register("TRIAL_EXPIRED", errx.TypeBusiness, http.StatusPaymentRequired, "Trial period expired")
+	CodeSubscriptionExpired = ErrRegistry.Register("SUBSCRIPTION_EXPIRED", errx.TypeBusiness, http.StatusPaymentRequired, "Subscription expired")
+	CodeMaxUsersReached     = ErrRegistry.Register("MAX_USERS_REACHED", errx.TypeBusiness, http.StatusForbidden, "Maximum users reached")
+	CodeTooManyUsersForPlan = ErrRegistry.Register("TOO_MANY_USERS_FOR_PLAN", errx.TypeBusiness, http.StatusBadRequest, "New plan does not support current user count")
+	CodeTenantHasUsers      = ErrRegistry.Register("TENANT_HAS_USERS", errx.TypeBusiness, http.StatusConflict, "Cannot delete tenant with active users")
+	CodeInvalidPlanUpgrade  = ErrRegistry.Register("INVALID_PLAN_UPGRADE", errx.TypeBusiness, http.StatusBadRequest, "Invalid plan upgrade")
 )
 
-// Helper functions para crear errores
+// Helper functions
 func ErrTenantNotFound() *errx.Error {
 	return ErrRegistry.New(CodeTenantNotFound)
 }

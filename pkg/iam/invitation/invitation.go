@@ -269,25 +269,24 @@ func CalculateExpirationDate(daysFromNow int, defaultDays int) time.Time {
 }
 
 // ============================================================================
-// Error Registry - Errores específicos de Invitation
+// Error Registry
 // ============================================================================
 
 var ErrRegistry = errx.NewRegistry("INVITATION")
 
-// Códigos de error
 var (
-	CodeInvitationNotFound        = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Invitación no encontrada")
-	CodeInvitationExpired         = ErrRegistry.Register("EXPIRED", errx.TypeBusiness, http.StatusGone, "Invitación expirada")
-	CodeInvitationInvalid         = ErrRegistry.Register("INVALID", errx.TypeBusiness, http.StatusBadRequest, "Invitación inválida")
-	CodeInvitationAlreadyAccepted = ErrRegistry.Register("ALREADY_ACCEPTED", errx.TypeBusiness, http.StatusConflict, "Invitación ya aceptada")
-	CodeInvitationAlreadyRevoked  = ErrRegistry.Register("ALREADY_REVOKED", errx.TypeBusiness, http.StatusConflict, "Invitación ya revocada")
-	CodeInvitationAlreadyExists   = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "Ya existe una invitación pendiente para este email")
-	CodeUserAlreadyExists         = ErrRegistry.Register("USER_ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "El usuario ya existe en este tenant")
-	CodeInvalidScopeTemplate      = ErrRegistry.Register("INVALID_SCOPE_TEMPLATE", errx.TypeValidation, http.StatusBadRequest, "Plantilla de scopes no encontrada")
-	CodeInvalidScopes             = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Scopes inválidos")
+	CodeInvitationNotFound        = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Invitation not found")
+	CodeInvitationExpired         = ErrRegistry.Register("EXPIRED", errx.TypeBusiness, http.StatusGone, "Invitation expired")
+	CodeInvitationInvalid         = ErrRegistry.Register("INVALID", errx.TypeBusiness, http.StatusBadRequest, "Invalid invitation")
+	CodeInvitationAlreadyAccepted = ErrRegistry.Register("ALREADY_ACCEPTED", errx.TypeBusiness, http.StatusConflict, "Invitation already accepted")
+	CodeInvitationAlreadyRevoked  = ErrRegistry.Register("ALREADY_REVOKED", errx.TypeBusiness, http.StatusConflict, "Invitation already revoked")
+	CodeInvitationAlreadyExists   = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "A pending invitation already exists for this email")
+	CodeUserAlreadyExists         = ErrRegistry.Register("USER_ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "User already exists in this tenant")
+	CodeInvalidScopeTemplate      = ErrRegistry.Register("INVALID_SCOPE_TEMPLATE", errx.TypeValidation, http.StatusBadRequest, "Scope template not found")
+	CodeInvalidScopes             = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
 )
 
-// Helper functions para crear errores
+// Helper functions
 func ErrInvitationNotFound() *errx.Error {
 	return ErrRegistry.New(CodeInvitationNotFound)
 }
