@@ -63,13 +63,7 @@ func (e *Error) WithDetails(details map[string]interface{}) *Error {
 // MarshalJSON implements json.Marshaler
 func (e *Error) MarshalJSON() ([]byte, error) {
 	type Alias Error
-	return json.Marshal(&struct {
-		*Alias
-		Error string `json:"error,omitempty"`
-	}{
-		Alias: (*Alias)(e),
-		Error: e.Error(),
-	})
+	return json.Marshal((*Alias)(e))
 }
 
 // New creates a new Error
@@ -89,13 +83,13 @@ func Wrap(err error, message string, errType Type) *Error {
 		return nil
 	}
 
-	// If it's already an Error, preserve code and details
+	// If it's already an Error, preserve its semantics entirely
 	var existingErr *Error
 	if errors.As(err, &existingErr) {
 		return &Error{
 			Code:       existingErr.Code,
 			Message:    message,
-			Type:       errType,
+			Type:       existingErr.Type,
 			HTTPStatus: existingErr.HTTPStatus,
 			Details:    existingErr.Details,
 			Err:        err,
