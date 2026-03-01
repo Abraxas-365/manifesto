@@ -241,7 +241,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		Token:     refreshTokenStr,
 		UserID:    userEntity.ID,
 		TenantID:  tenantEntity.ID,
-		ExpiresAt: time.Now().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		ExpiresAt: time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
 		CreatedAt: time.Now(),
 		IsRevoked: false,
 	}
@@ -260,7 +260,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		SessionToken: generateID(),
 		IPAddress:    c.IP(),
 		UserAgent:    c.Get("User-Agent"),
-		ExpiresAt:    time.Now().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		ExpiresAt:    time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
 		CreatedAt:    time.Now(),
 		LastActivity: time.Now(),
 	}

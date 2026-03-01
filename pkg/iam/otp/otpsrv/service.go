@@ -56,7 +56,7 @@ func (s *OTPService) GenerateOTP(ctx context.Context, contact string, purpose ot
 		Contact:     contact,
 		Code:        code,
 		Purpose:     purpose,
-		ExpiresAt:   time.Now().Add(s.config.ExpirationTime),
+		ExpiresAt:   time.Now().UTC().Add(s.config.ExpirationTime),
 		Attempts:    0,
 		MaxAttempts: s.config.MaxAttempts,
 		CreatedAt:   time.Now(),

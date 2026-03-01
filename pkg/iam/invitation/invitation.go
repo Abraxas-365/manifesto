@@ -93,7 +93,7 @@ func (i *Invitation) Accept(userID kernel.UserID) error {
 		return ErrInvitationInvalid().WithDetail("status", string(i.Status))
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	i.Status = InvitationStatusAccepted
 	i.AcceptedAt = &now
 	i.AcceptedBy = &userID
@@ -112,7 +112,7 @@ func (i *Invitation) Revoke() error {
 	}
 
 	i.Status = InvitationStatusRevoked
-	i.UpdatedAt = time.Now()
+	i.UpdatedAt = time.Now().UTC()
 	return nil
 }
 
@@ -120,7 +120,7 @@ func (i *Invitation) Revoke() error {
 func (i *Invitation) MarkAsExpired() {
 	if i.Status == InvitationStatusPending && i.IsExpired() {
 		i.Status = InvitationStatusExpired
-		i.UpdatedAt = time.Now()
+		i.UpdatedAt = time.Now().UTC()
 	}
 }
 
@@ -265,7 +265,7 @@ func CalculateExpirationDate(daysFromNow int, defaultDays int) time.Time {
 	if daysFromNow <= 0 {
 		daysFromNow = defaultDays
 	}
-	return time.Now().AddDate(0, 0, daysFromNow)
+	return time.Now().UTC().AddDate(0, 0, daysFromNow)
 }
 
 // ============================================================================

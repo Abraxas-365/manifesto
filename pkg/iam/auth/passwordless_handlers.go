@@ -586,11 +586,13 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 
 	// 7. Save refresh token
 	refreshToken := RefreshToken{
-		ID:        uuid.NewString(),
-		Token:     refreshTokenStr,
-		UserID:    userEntity.ID,
-		TenantID:  tenantEntity.ID,
-		ExpiresAt: time.Now().Add(h.config.Auth.JWT.RefreshTokenTTL),
+		ID:       uuid.NewString(),
+		Token:    refreshTokenStr,
+		UserID:   userEntity.ID,
+		TenantID: tenantEntity.ID,
+
+		ExpiresAt: time.Now().UTC().Add(h.config.Auth.JWT.RefreshTokenTTL),
+
 		CreatedAt: time.Now(),
 		IsRevoked: false,
 	}
@@ -604,7 +606,7 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		SessionToken: uuid.NewString(),
 		IPAddress:    c.IP(),
 		UserAgent:    c.Get("User-Agent"),
-		ExpiresAt:    time.Now().Add(h.config.Auth.JWT.RefreshTokenTTL),
+		ExpiresAt:    time.Now().UTC().Add(h.config.Auth.JWT.RefreshTokenTTL),
 		CreatedAt:    time.Now(),
 		LastActivity: time.Now(),
 	}

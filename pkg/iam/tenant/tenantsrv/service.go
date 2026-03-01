@@ -47,8 +47,8 @@ func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenan
 		CurrentUsers:          0,
 		TrialExpiresAt:        s.calculateTrialExpiration(),
 		SubscriptionExpiresAt: nil,
-		CreatedAt:             time.Now(),
-		UpdatedAt:             time.Now(),
+		CreatedAt:             time.Now().UTC(),
+		UpdatedAt:             time.Now().UTC(),
 	}
 
 	// Si se especificó un plan diferente, usar ese
@@ -158,7 +158,7 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.Tenant
 		}
 	}
 
-	tenantEntity.UpdatedAt = time.Now()
+	tenantEntity.UpdatedAt = time.Now().UTC()
 
 	// Guardar cambios
 	if err := s.tenantRepo.Save(ctx, *tenantEntity); err != nil {
@@ -408,11 +408,11 @@ func (s *TenantService) getMaxUsersForPlan(plan tenant.SubscriptionPlan) int {
 }
 
 func (s *TenantService) calculateTrialExpiration() *time.Time {
-	expiration := time.Now().AddDate(0, 0, s.config.TrialDays)
+	expiration := time.Now().UTC().AddDate(0, 0, s.config.TrialDays)
 	return &expiration
 }
 
 func (s *TenantService) calculateSubscriptionExpiration() *time.Time {
-	expiration := time.Now().AddDate(s.config.SubscriptionYears, 0, 0)
+	expiration := time.Now().UTC().AddDate(s.config.SubscriptionYears, 0, 0)
 	return &expiration
 }

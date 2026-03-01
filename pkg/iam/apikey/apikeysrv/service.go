@@ -70,7 +70,7 @@ func (s *APIKeyService) CreateAPIKey(
 
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
-		expiration := time.Now().AddDate(0, 0, *req.ExpiresIn)
+		expiration := time.Now().UTC().AddDate(0, 0, *req.ExpiresIn)
 		expiresAt = &expiration
 	}
 
@@ -85,8 +85,8 @@ func (s *APIKeyService) CreateAPIKey(
 		Scopes:      req.Scopes,
 		IsActive:    true,
 		ExpiresAt:   expiresAt,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
 	}
 
 	if err := s.apiKeyRepo.Save(ctx, newKey); err != nil {
@@ -158,7 +158,7 @@ func (s *APIKeyService) UpdateAPIKey(
 		key.IsActive = *req.IsActive
 	}
 
-	key.UpdatedAt = time.Now()
+	key.UpdatedAt = time.Now().UTC()
 
 	if err := s.apiKeyRepo.Save(ctx, *key); err != nil {
 		return nil, errx.Wrap(err, "failed to update API key", errx.TypeInternal)
