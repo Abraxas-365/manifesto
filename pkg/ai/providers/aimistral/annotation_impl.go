@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"github.com/Abraxas-365/manifesto/pkg/ai/ocr"
-	"github.com/Abraxas-365/manifesto/pkg/errx"
 )
 
 // ============================================================================
@@ -13,7 +12,7 @@ import (
 // ============================================================================
 
 // AnnotateDocument implements document-level annotation
-func (m *MistralProvider) AnnotateDocument(ctx context.Context, input ocr.Input, schema ocr.AnnotationSchema, opts ...ocr.Option) (*ocr.AnnotatedDocument, *errx.Error) {
+func (m *MistralProvider) AnnotateDocument(ctx context.Context, input ocr.Input, schema ocr.AnnotationSchema, opts ...ocr.Option) (*ocr.AnnotatedDocument, error) {
 	options := ocr.ApplyOptions(opts...)
 
 	if options.Model == "" {
@@ -62,7 +61,7 @@ func (m *MistralProvider) AnnotateDocument(ctx context.Context, input ocr.Input,
 
 // AnnotateBBoxes implements bbox-level annotation
 // Changed receiver from *MistralOCR to *MistralProvider
-func (m *MistralProvider) AnnotateBBoxes(ctx context.Context, input ocr.Input, schema ocr.AnnotationSchema, opts ...ocr.Option) (*ocr.AnnotatedDocument, *errx.Error) {
+func (m *MistralProvider) AnnotateBBoxes(ctx context.Context, input ocr.Input, schema ocr.AnnotationSchema, opts ...ocr.Option) (*ocr.AnnotatedDocument, error) {
 	options := ocr.ApplyOptions(opts...)
 
 	if options.Model == "" {
@@ -124,7 +123,7 @@ func (m *MistralProvider) AnnotateBBoxes(ctx context.Context, input ocr.Input, s
 
 // AnnotateBoth implements both document and bbox annotation
 // Changed receiver from *MistralOCR to *MistralProvider
-func (m *MistralProvider) AnnotateBoth(ctx context.Context, input ocr.Input, docSchema, bboxSchema ocr.AnnotationSchema, opts ...ocr.Option) (*ocr.AnnotatedDocument, *errx.Error) {
+func (m *MistralProvider) AnnotateBoth(ctx context.Context, input ocr.Input, docSchema, bboxSchema ocr.AnnotationSchema, opts ...ocr.Option) (*ocr.AnnotatedDocument, error) {
 	options := ocr.ApplyOptions(opts...)
 
 	if options.Model == "" {
@@ -195,7 +194,7 @@ func (m *MistralProvider) AnnotateBoth(ctx context.Context, input ocr.Input, doc
 // Helper Methods
 // ============================================================================
 
-func (m *MistralProvider) validateSchema(schema ocr.AnnotationSchema) *errx.Error {
+func (m *MistralProvider) validateSchema(schema ocr.AnnotationSchema) error {
 	if schema.Name == "" {
 		return errorRegistry.New(ErrSchemaInvalid).
 			WithDetail("error", "schema name cannot be empty")
