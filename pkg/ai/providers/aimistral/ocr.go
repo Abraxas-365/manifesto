@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/Abraxas-365/manifesto/pkg/ai/ocr"
-	"github.com/Abraxas-365/manifesto/pkg/errx"
 )
 
 // MistralProvider implements OCR capabilities for Mistral AI
@@ -25,7 +24,7 @@ type MistralProvider struct {
 }
 
 // NewMistralProvider creates a new Mistral OCR provider
-func NewMistralProvider(apiKey string, opts ...ProviderOption) (*MistralProvider, *errx.Error) {
+func NewMistralProvider(apiKey string, opts ...ProviderOption) (*MistralProvider, error) {
 	if apiKey == "" {
 		apiKey = os.Getenv("MISTRAL_API_KEY")
 	}
@@ -59,7 +58,7 @@ func NewMistralProvider(apiKey string, opts ...ProviderOption) (*MistralProvider
 // ============================================================================
 
 // RecognizeText implements the core OCR functionality
-func (m *MistralProvider) RecognizeText(ctx context.Context, input ocr.Input, opts ...ocr.Option) (*ocr.Result, *errx.Error) {
+func (m *MistralProvider) RecognizeText(ctx context.Context, input ocr.Input, opts ...ocr.Option) (*ocr.Result, error) {
 	options := ocr.ApplyOptions(opts...)
 
 	if options.Model == "" {
@@ -93,7 +92,7 @@ func (m *MistralProvider) RecognizeText(ctx context.Context, input ocr.Input, op
 }
 
 // RecognizeURL is a convenience method for URL inputs
-func (m *MistralProvider) RecognizeURL(ctx context.Context, url string, opts ...ocr.Option) (*ocr.Result, *errx.Error) {
+func (m *MistralProvider) RecognizeURL(ctx context.Context, url string, opts ...ocr.Option) (*ocr.Result, error) {
 	return m.RecognizeText(ctx, ocr.FromURL(url), opts...)
 }
 
@@ -102,7 +101,7 @@ func (m *MistralProvider) RecognizeURL(ctx context.Context, url string, opts ...
 // ============================================================================
 
 // ConvertToMarkdown implements MarkdownConverter
-func (m *MistralProvider) ConvertToMarkdown(ctx context.Context, input ocr.Input, opts ...ocr.Option) (string, *errx.Error) {
+func (m *MistralProvider) ConvertToMarkdown(ctx context.Context, input ocr.Input, opts ...ocr.Option) (string, error) {
 	result, err := m.RecognizeText(ctx, input, append(opts, ocr.WithMarkdown())...)
 	if err != nil {
 		return "", err
@@ -111,7 +110,7 @@ func (m *MistralProvider) ConvertToMarkdown(ctx context.Context, input ocr.Input
 }
 
 // ExtractImages implements ImageExtractor
-func (m *MistralProvider) ExtractImages(ctx context.Context, input ocr.Input, opts ...ocr.Option) ([]ocr.Image, *errx.Error) {
+func (m *MistralProvider) ExtractImages(ctx context.Context, input ocr.Input, opts ...ocr.Option) ([]ocr.Image, error) {
 	allOpts := append([]ocr.Option{ocr.WithImages(true)}, opts...)
 	result, err := m.RecognizeText(ctx, input, allOpts...)
 	if err != nil {
@@ -126,7 +125,7 @@ func (m *MistralProvider) ExtractImages(ctx context.Context, input ocr.Input, op
 }
 
 // ExtractTables implements TableExtractor
-func (m *MistralProvider) ExtractTables(ctx context.Context, input ocr.Input, opts ...ocr.Option) ([]ocr.Table, *errx.Error) {
+func (m *MistralProvider) ExtractTables(ctx context.Context, input ocr.Input, opts ...ocr.Option) ([]ocr.Table, error) {
 	allOpts := append([]ocr.Option{ocr.WithTables(ocr.TableFormatHTML)}, opts...)
 	result, err := m.RecognizeText(ctx, input, allOpts...)
 	if err != nil {
@@ -376,7 +375,7 @@ func (m *MistralProvider) countTables(pages []PageData) int {
 // Validation
 // ============================================================================
 
-func (m *MistralProvider) validateInput(input ocr.Input) *errx.Error {
+func (m *MistralProvider) validateInput(input ocr.Input) error {
 	// Validate input type
 	switch input.Type {
 	case ocr.InputTypeReader:
