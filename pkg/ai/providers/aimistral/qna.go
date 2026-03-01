@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/Abraxas-365/manifesto/pkg/ai/ocr"
-	"github.com/Abraxas-365/manifesto/pkg/errx"
 )
 
 // ============================================================================
@@ -15,7 +14,7 @@ import (
 // ============================================================================
 
 // AskQuestion implements single question answering
-func (m *MistralProvider) AskQuestion(ctx context.Context, input ocr.Input, question string, opts ...ocr.Option) (ocr.QnAResponse, *errx.Error) {
+func (m *MistralProvider) AskQuestion(ctx context.Context, input ocr.Input, question string, opts ...ocr.Option) (ocr.QnAResponse, error) {
 	options := ocr.ApplyOptions(opts...)
 
 	model := m.defaultChatModel
@@ -79,7 +78,7 @@ func (m *MistralProvider) AskQuestion(ctx context.Context, input ocr.Input, ques
 }
 
 // AskQuestions implements multiple question answering
-func (m *MistralProvider) AskQuestions(ctx context.Context, input ocr.Input, questions []string, opts ...ocr.Option) ([]ocr.QnAResponse, *errx.Error) {
+func (m *MistralProvider) AskQuestions(ctx context.Context, input ocr.Input, questions []string, opts ...ocr.Option) ([]ocr.QnAResponse, error) {
 	if len(questions) == 0 {
 		return nil, errorRegistry.New(ErrInvalidInput).
 			WithDetail("error", "questions list cannot be empty")
@@ -101,7 +100,7 @@ func (m *MistralProvider) AskQuestions(ctx context.Context, input ocr.Input, que
 }
 
 // Chat implements multi-turn conversation
-func (m *MistralProvider) Chat(ctx context.Context, input ocr.Input, messages []ocr.ConversationMessage, opts ...ocr.Option) (ocr.QnAResponse, *errx.Error) {
+func (m *MistralProvider) Chat(ctx context.Context, input ocr.Input, messages []ocr.ConversationMessage, opts ...ocr.Option) (ocr.QnAResponse, error) {
 	options := ocr.ApplyOptions(opts...)
 
 	model := m.defaultChatModel
