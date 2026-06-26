@@ -12,7 +12,7 @@ import (
 // Tenant Entity
 // ============================================================================
 
-// TenantStatus define los posibles estados de un tenant
+// TenantStatus defines the possible statuses for a tenant
 type TenantStatus string
 
 const (
@@ -22,7 +22,7 @@ const (
 	TenantStatusTrial     TenantStatus = "TRIAL"
 )
 
-// SubscriptionPlan define los planes de suscripción
+// SubscriptionPlan defines the subscription plans
 type SubscriptionPlan string
 
 const (
@@ -32,7 +32,7 @@ const (
 	PlanEnterprise   SubscriptionPlan = "ENTERPRISE"
 )
 
-// Tenant es la entidad rica que representa una empresa en el sistema
+// Tenant is the rich entity that represents a company in the system
 type Tenant struct {
 	ID                    kernel.TenantID  `db:"id" json:"id"`
 	CompanyName           string           `db:"company_name" json:"company_name"`
@@ -51,17 +51,17 @@ type Tenant struct {
 // Domain Methods
 // ============================================================================
 
-// IsActive verifica si el tenant está activo
+// IsActive checks if the tenant is active
 func (t *Tenant) IsActive() bool {
 	return t.Status == TenantStatusActive
 }
 
-// IsTrial verifica si el tenant está en período de prueba
+// IsTrial checks if the tenant is in a trial period
 func (t *Tenant) IsTrial() bool {
 	return t.SubscriptionPlan == PlanTrial || t.Status == TenantStatusTrial
 }
 
-// IsTrialExpired verifica si el trial ha expirado
+// IsTrialExpired checks if the trial has expired
 func (t *Tenant) IsTrialExpired() bool {
 	if !t.IsTrial() || t.TrialExpiresAt == nil {
 		return false
@@ -69,7 +69,7 @@ func (t *Tenant) IsTrialExpired() bool {
 	return time.Now().After(*t.TrialExpiresAt)
 }
 
-// IsSubscriptionExpired verifica si la suscripción ha expirado
+// IsSubscriptionExpired checks if the subscription has expired
 func (t *Tenant) IsSubscriptionExpired() bool {
 	if t.SubscriptionExpiresAt == nil {
 		return false
@@ -77,7 +77,7 @@ func (t *Tenant) IsSubscriptionExpired() bool {
 	return time.Now().After(*t.SubscriptionExpiresAt)
 }
 
-// CanAddUser verifica si se puede agregar un nuevo usuario
+// CanAddUser checks if a new user can be added
 func (t *Tenant) CanAddUser() bool {
 	if !t.IsActive() {
 		return false
@@ -88,7 +88,7 @@ func (t *Tenant) CanAddUser() bool {
 	return t.CurrentUsers < t.MaxUsers
 }
 
-// AddUser incrementa el contador de usuarios
+// AddUser increments the user counter
 func (t *Tenant) AddUser() error {
 	if !t.CanAddUser() {
 		return ErrMaxUsersReached().WithDetail("max_users", t.MaxUsers).WithDetail("current_users", t.CurrentUsers)
@@ -99,7 +99,7 @@ func (t *Tenant) AddUser() error {
 	return nil
 }
 
-// RemoveUser decrementa el contador de usuarios
+// RemoveUser decrements the user counter
 func (t *Tenant) RemoveUser() {
 	if t.CurrentUsers > 0 {
 		t.CurrentUsers--
@@ -107,19 +107,19 @@ func (t *Tenant) RemoveUser() {
 	}
 }
 
-// Suspend suspende el tenant
+// Suspend suspends the tenant
 func (t *Tenant) Suspend(reason string) {
 	t.Status = TenantStatusSuspended
 	t.UpdatedAt = time.Now()
 }
 
-// Activate activa el tenant
+// Activate activates the tenant
 func (t *Tenant) Activate() {
 	t.Status = TenantStatusActive
 	t.UpdatedAt = time.Now()
 }
 
-// UpgradePlan mejora el plan de suscripción
+// UpgradePlan upgrades the subscription plan
 func (t *Tenant) UpgradePlan(newPlan SubscriptionPlan) error {
 	maxUsers := t.getMaxUsersForPlan(newPlan)
 	if t.CurrentUsers > maxUsers {
@@ -132,7 +132,7 @@ func (t *Tenant) UpgradePlan(newPlan SubscriptionPlan) error {
 	return nil
 }
 
-// getMaxUsersForPlan retorna el máximo de usuarios para un plan
+// getMaxUsersForPlan returns the maximum number of users for a plan
 func (t *Tenant) getMaxUsersForPlan(plan SubscriptionPlan) int {
 	switch plan {
 	case PlanTrial, PlanBasic:
@@ -150,7 +150,7 @@ func (t *Tenant) getMaxUsersForPlan(plan SubscriptionPlan) int {
 // DTOs
 // ============================================================================
 
-// TenantDetailsDTO contiene información básica de un tenant para otros módulos
+// TenantDetailsDTO contains basic tenant information for other modules
 type TenantDetailsDTO struct {
 	ID               kernel.TenantID  `json:"id"`
 	CompanyName      string           `json:"company_name"`
@@ -160,7 +160,7 @@ type TenantDetailsDTO struct {
 	CurrentUsers     int              `json:"current_users"`
 }
 
-// ToDTO convierte la entidad Tenant a TenantDetailsDTO
+// ToDTO converts the Tenant entity to TenantDetailsDTO
 func (t *Tenant) ToDTO() TenantDetailsDTO {
 	return TenantDetailsDTO{
 		ID:               t.ID,
@@ -173,28 +173,28 @@ func (t *Tenant) ToDTO() TenantDetailsDTO {
 }
 
 // ============================================================================
-// Service DTOs - Para operaciones de la capa de servicio
+// Service DTOs - For service layer operations
 // ============================================================================
 
-// CreateTenantRequest representa la petición para crear un tenant
+// CreateTenantRequest represents the request to create a tenant
 type CreateTenantRequest struct {
 	CompanyName      string           `json:"company_name" validate:"required,min=2"`
 	SubscriptionPlan SubscriptionPlan `json:"subscription_plan"`
 }
 
-// UpdateTenantRequest representa la petición para actualizar un tenant
+// UpdateTenantRequest represents the request to update a tenant
 type UpdateTenantRequest struct {
 	CompanyName *string       `json:"company_name,omitempty" validate:"omitempty,min=2"`
 	Status      *TenantStatus `json:"status,omitempty"`
 }
 
-// TenantResponse representa la respuesta completa de un tenant con configuración
+// TenantResponse represents the complete tenant response with configuration
 type TenantResponse struct {
 	Tenant Tenant            `json:"tenant"`
 	Config map[string]string `json:"config"`
 }
 
-// ToDTO convierte TenantResponse a TenantResponseDTO
+// ToDTO converts TenantResponse to TenantResponseDTO
 func (tr *TenantResponse) ToDTO() TenantResponseDTO {
 	return TenantResponseDTO{
 		Tenant: tr.Tenant.ToDTO(),
@@ -202,45 +202,45 @@ func (tr *TenantResponse) ToDTO() TenantResponseDTO {
 	}
 }
 
-// TenantResponseDTO es la versión DTO de TenantResponse
+// TenantResponseDTO is the DTO version of TenantResponse
 type TenantResponseDTO struct {
 	Tenant TenantDetailsDTO  `json:"tenant"`
 	Config map[string]string `json:"config"`
 }
 
-// SuspendTenantRequest para suspender un tenant
+// SuspendTenantRequest for suspending a tenant
 type SuspendTenantRequest struct {
 	Reason string `json:"reason" validate:"required,min=10"`
 }
 
-// ActivateTenantRequest para activar un tenant
+// ActivateTenantRequest for activating a tenant
 type ActivateTenantRequest struct {
 	Comments string `json:"comments,omitempty"`
 }
 
-// UpgradePlanRequest para cambiar el plan de suscripción
+// UpgradePlanRequest for changing the subscription plan
 type UpgradePlanRequest struct {
 	NewPlan SubscriptionPlan `json:"new_plan" validate:"required"`
 }
 
-// SetConfigRequest para establecer una configuración
+// SetConfigRequest for setting a configuration
 type SetConfigRequest struct {
 	Key   string `json:"key" validate:"required"`
 	Value string `json:"value" validate:"required"`
 }
 
-// DeleteConfigRequest para eliminar una configuración
+// DeleteConfigRequest for deleting a configuration
 type DeleteConfigRequest struct {
 	Key string `json:"key" validate:"required"`
 }
 
-// TenantListResponse para listas de tenants
+// TenantListResponse for tenant lists
 type TenantListResponse struct {
 	Tenants []TenantResponse `json:"tenants"`
 	Total   int              `json:"total"`
 }
 
-// ToDTO convierte TenantListResponse a TenantListResponseDTO
+// ToDTO converts TenantListResponse to TenantListResponseDTO
 func (tlr *TenantListResponse) ToDTO() TenantListResponseDTO {
 	var tenantsDTO []TenantResponseDTO
 	for _, t := range tlr.Tenants {
@@ -253,26 +253,26 @@ func (tlr *TenantListResponse) ToDTO() TenantListResponseDTO {
 	}
 }
 
-// TenantListResponseDTO es la versión DTO de TenantListResponse
+// TenantListResponseDTO is the DTO version of TenantListResponse
 type TenantListResponseDTO struct {
 	Tenants []TenantResponseDTO `json:"tenants"`
 	Total   int                 `json:"total"`
 }
 
-// TenantStatsResponse para estadísticas del tenant
+// TenantStatsResponse for tenant statistics
 type TenantStatsResponse struct {
 	TenantID              kernel.TenantID `json:"tenant_id"`
 	TotalUsers            int             `json:"total_users"`
 	ActiveUsers           int             `json:"active_users"`
 	MaxUsers              int             `json:"max_users"`
-	UserUtilization       float64         `json:"user_utilization"` // Porcentaje de usuarios usados
+	UserUtilization       float64         `json:"user_utilization"` // Percentage of users used
 	SubscriptionStatus    string          `json:"subscription_status"`
 	DaysUntilExpiration   *int            `json:"days_until_expiration,omitempty"`
 	IsTrialExpired        bool            `json:"is_trial_expired"`
 	IsSubscriptionExpired bool            `json:"is_subscription_expired"`
 }
 
-// TenantHealthResponse para el estado de salud del tenant
+// TenantHealthResponse for the tenant health status
 type TenantHealthResponse struct {
 	TenantID        kernel.TenantID `json:"tenant_id"`
 	Status          TenantStatus    `json:"status"`
@@ -281,27 +281,27 @@ type TenantHealthResponse struct {
 	LastHealthCheck time.Time       `json:"last_health_check"`
 }
 
-// BulkTenantOperationRequest para operaciones masivas
+// BulkTenantOperationRequest for bulk operations
 type BulkTenantOperationRequest struct {
 	TenantIDs []kernel.TenantID `json:"tenant_ids" validate:"required,min=1"`
 	Operation string            `json:"operation" validate:"required,oneof=suspend activate delete"`
 	Reason    string            `json:"reason,omitempty"`
 }
 
-// BulkTenantOperationResponse resultado de operaciones masivas
+// BulkTenantOperationResponse result of bulk operations
 type BulkTenantOperationResponse struct {
 	Successful []kernel.TenantID          `json:"successful"`
 	Failed     map[kernel.TenantID]string `json:"failed"`
 	Total      int                        `json:"total"`
 }
 
-// TenantConfigResponse para respuestas de configuración
+// TenantConfigResponse for configuration responses
 type TenantConfigResponse struct {
 	TenantID kernel.TenantID   `json:"tenant_id"`
 	Config   map[string]string `json:"config"`
 }
 
-// TenantUsageResponse para información de uso del tenant
+// TenantUsageResponse for tenant usage information
 type TenantUsageResponse struct {
 	TenantID        kernel.TenantID `json:"tenant_id"`
 	CurrentUsers    int             `json:"current_users"`

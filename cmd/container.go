@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/fsx"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxs3"
+	"github.com/Abraxas-365/manifesto/internal/iam/iamcontainer"
 	"github.com/Abraxas-365/manifesto/internal/logx"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -32,7 +33,7 @@ type Container struct {
 	S3Client   *s3.Client
 
 	// Bounded-context containers
-	// Add your module containers here
+	IAM *iamcontainer.Container
 }
 
 func NewContainer(cfg *config.Config) *Container {
@@ -127,7 +128,12 @@ func (c *Container) initFileStorage() {
 
 func (c *Container) initModules() {
 	logx.Info("📦 Initializing modules...")
-	// Add your module initialization here
+
+	c.IAM = iamcontainer.New(iamcontainer.Deps{
+		DB:    c.DB,
+		Redis: c.Redis,
+		Cfg:   c.Config,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +142,7 @@ func (c *Container) initModules() {
 
 func (c *Container) StartBackgroundServices(ctx context.Context) {
 	logx.Info("🔄 Starting background services...")
-	// Add your background services here
+	c.IAM.StartBackgroundServices(ctx)
 }
 
 func (c *Container) Cleanup() {

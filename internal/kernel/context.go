@@ -1,10 +1,10 @@
 package kernel
 
 // ============================================================================
-// Context Types - Tipos para context.Context
+// Context Types
 // ============================================================================
 
-// AuthContext es el contexto de autenticación que se inyecta en cada request
+// AuthContext is the authentication context injected into each request
 type AuthContext struct {
 	UserID   *UserID  `json:"user_id"`
 	TenantID TenantID `json:"tenant_id"`
@@ -18,7 +18,7 @@ type AuthContext struct {
 // Validation Methods
 // ============================================================================
 
-// IsValid verifica si el AuthContext es válido
+// IsValid checks whether the AuthContext is valid
 func (ac *AuthContext) IsValid() bool {
 	if ac.IsAPIKey {
 		return !ac.TenantID.IsEmpty()
@@ -30,30 +30,37 @@ func (ac *AuthContext) IsValid() bool {
 // Scope Management Methods
 // ============================================================================
 
-// HasScope verifica si el contexto tiene un scope específico
-func (ac *AuthContext) HasScope(scope string) bool {
-	for _, s := range ac.Scopes {
-		// Exact match or wildcard "*"
-		if s == scope || s == "*" {
+// MatchScope checks if a held scope grants access to the required scope.
+// Supports exact match, global wildcard "*", and prefix wildcards (e.g., "roles:*" matches "roles:read").
+func MatchScope(held, required string) bool {
+	if held == required || held == "*" {
+		return true
+	}
+	if len(held) > 2 && held[len(held)-2:] == ":*" {
+		prefix := held[:len(held)-2]
+		if len(required) > len(prefix) && required[:len(prefix)] == prefix && required[len(prefix)] == ':' {
 			return true
-		}
-		// Wildcard match (e.g., "channels:*" matches "channels:read")
-		if len(s) > 2 && s[len(s)-2:] == ":*" {
-			prefix := s[:len(s)-2]
-			if len(scope) > len(prefix) && scope[:len(prefix)] == prefix && scope[len(prefix)] == ':' {
-				return true
-			}
 		}
 	}
 	return false
 }
 
-// IsAdmin verifica si el contexto tiene permisos de administrador
-func (ac *AuthContext) IsAdmin() bool {
-	return ac.HasScope("*") || ac.HasScope("admin:*")
+// ScopesContain checks if a slice of scopes grants the required scope.
+func ScopesContain(scopes []string, required string) bool {
+	for _, s := range scopes {
+		if MatchScope(s, required) {
+			return true
+		}
+	}
+	return false
 }
 
-// HasAnyScope verifica si el contexto tiene alguno de los scopes proporcionados
+// HasScope checks if the context has a specific scope
+func (ac *AuthContext) HasScope(scope string) bool {
+	return ScopesContain(ac.Scopes, scope)
+}
+
+// HasAnyScope checks whether the context has any of the provided scopes
 func (ac *AuthContext) HasAnyScope(scopes ...string) bool {
 	for _, scope := range scopes {
 		if ac.HasScope(scope) {
@@ -63,7 +70,7 @@ func (ac *AuthContext) HasAnyScope(scopes ...string) bool {
 	return false
 }
 
-// HasAllScopes verifica si el contexto tiene todos los scopes proporcionados
+// HasAllScopes checks whether the context has all of the provided scopes
 func (ac *AuthContext) HasAllScopes(scopes ...string) bool {
 	for _, scope := range scopes {
 		if !ac.HasScope(scope) {
@@ -74,21 +81,21 @@ func (ac *AuthContext) HasAllScopes(scopes ...string) bool {
 }
 
 // ============================================================================
-// Context Keys - Claves para context.Context
+// Context Keys
 // ============================================================================
 
 type ContextKey string
 
 const (
-	// AuthContextKey es la clave para almacenar AuthContext en context.Context
+	// AuthContextKey is the key for storing AuthContext in context.Context
 	AuthContextKey ContextKey = "auth_context"
 
-	// TenantContextKey es la clave para almacenar TenantID en context.Context
+	// TenantContextKey is the key for storing TenantID in context.Context
 	TenantContextKey ContextKey = "tenant_id"
 
-	// UserContextKey es la clave para almacenar UserID en context.Context
+	// UserContextKey is the key for storing UserID in context.Context
 	UserContextKey ContextKey = "user_id"
 
-	// RequestIDKey es la clave para almacenar el ID de la petición
+	// RequestIDKey is the key for storing the request ID
 	RequestIDKey ContextKey = "request_id"
 )

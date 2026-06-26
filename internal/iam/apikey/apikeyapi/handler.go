@@ -19,12 +19,12 @@ func NewAPIKeyHandlers(service *apikeysrv.APIKeyService) *APIKeyHandlers {
 func (h *APIKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	keys := router.Group("/api-keys", authMiddleware.Authenticate())
 
-	keys.Post("/", h.CreateAPIKey)
-	keys.Get("/", h.GetTenantAPIKeys)
-	keys.Get("/:id", h.GetAPIKey)
-	keys.Put("/:id", h.UpdateAPIKey)
-	keys.Post("/:id/revoke", h.RevokeAPIKey)
-	keys.Delete("/:id", h.DeleteAPIKey)
+	keys.Post("/", authMiddleware.RequireScope("api_keys:write"), h.CreateAPIKey)
+	keys.Get("/", authMiddleware.RequireScope("api_keys:read"), h.GetTenantAPIKeys)
+	keys.Get("/:id", authMiddleware.RequireScope("api_keys:read"), h.GetAPIKey)
+	keys.Put("/:id", authMiddleware.RequireScope("api_keys:write"), h.UpdateAPIKey)
+	keys.Post("/:id/revoke", authMiddleware.RequireScope("api_keys:revoke"), h.RevokeAPIKey)
+	keys.Delete("/:id", authMiddleware.RequireScope("api_keys:delete"), h.DeleteAPIKey)
 }
 
 func (h *APIKeyHandlers) CreateAPIKey(c *fiber.Ctx) error {

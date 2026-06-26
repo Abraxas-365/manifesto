@@ -41,6 +41,11 @@ type TokenService interface {
 	GenerateRefreshToken(userID kernel.UserID) (string, error)
 }
 
+// ScopeResolver resolves effective scopes for a user (direct scopes + role scopes)
+type ScopeResolver interface {
+	GetEffectiveScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) ([]string, error)
+}
+
 // AuditService defines the contract for authentication audit logging
 type AuditService interface {
 	LogLoginAttempt(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, success bool, ip string, userAgent string)
@@ -49,6 +54,17 @@ type AuditService interface {
 	LogOTPVerification(ctx context.Context, contact string, success bool, ip string)
 	LogAccountCreated(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, ip string)
 	LogAccountLinked(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, ip string)
+}
+
+// ResolveScopes returns effective scopes for a user (direct + role scopes).
+// Falls back to direct scopes if scope resolver is nil or returns an error.
+func ResolveScopes(ctx context.Context, resolver ScopeResolver, userID kernel.UserID, tenantID kernel.TenantID, directScopes []string) []string {
+	if resolver != nil {
+		if effective, err := resolver.GetEffectiveScopes(ctx, userID, tenantID); err == nil {
+			return effective
+		}
+	}
+	return directScopes
 }
 
 // Invitation represents an invitation (to avoid circular dependency)

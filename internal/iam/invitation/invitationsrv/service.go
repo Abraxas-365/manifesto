@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// InvitationService proporciona operaciones de negocio para invitaciones
+// InvitationService provides business operations for invitations
 type InvitationService struct {
 	invitationRepo      invitation.InvitationRepository
 	userRepo            user.UserRepository
@@ -24,7 +24,7 @@ type InvitationService struct {
 	config              *config.InvitationConfig
 }
 
-// NewInvitationService crea una nueva instancia del servicio de invitaciones
+// NewInvitationService creates a new invitation service instance
 func NewInvitationService(
 	invitationRepo invitation.InvitationRepository,
 	userRepo user.UserRepository,
@@ -41,38 +41,38 @@ func NewInvitationService(
 	}
 }
 
-// CreateInvitation crea una nueva invitación
+// CreateInvitation creates a new invitation
 func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kernel.TenantID, invitedBy kernel.UserID, req invitation.CreateInvitationRequest) (*invitation.Invitation, error) {
-	// Verificar que el tenant existe
+	// Check that the tenant exists
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
 	}
 
-	// Verificar que el tenant está activo
+	// Check that the tenant is active
 	if !tenantEntity.IsActive() {
 		return nil, tenant.ErrTenantSuspended()
 	}
 
-	// Verificar que el usuario que invita existe
+	// Check that the inviting user exists
 	inviterUser, err := s.userRepo.FindByID(ctx, invitedBy, tenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
 	}
 
-	// Verificar que el invitador tiene permisos (admin o users:invite)
-	if !inviterUser.IsAdmin() && !inviterUser.HasScope(scopes.ScopeUsersInvite) {
+	// Check that the inviter has permissions
+	if !inviterUser.HasScope(scopes.ScopeUsersInvite) {
 		return nil, errx.New("insufficient permissions to invite users", errx.TypeAuthorization).
 			WithDetail("required_scope", scopes.ScopeUsersInvite)
 	}
 
-	// Verificar que el usuario no existe ya en el tenant
+	// Check that the user does not already exist in the tenant
 	existingUser, err := s.userRepo.FindByEmail(ctx, req.Email, tenantID)
 	if err == nil && existingUser != nil {
 		return nil, invitation.ErrUserAlreadyExists().WithDetail("email", req.Email)
 	}
 
-	// Verificar que no existe una invitación pendiente para este email
+	// Check that no pending invitation exists for this email
 	exists, err := s.invitationRepo.ExistsPendingForEmail(ctx, req.Email, tenantID)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to check pending invitation", errx.TypeInternal)
@@ -81,31 +81,31 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 		return nil, invitation.ErrInvitationAlreadyExists().WithDetail("email", req.Email)
 	}
 
-	// Determinar scopes
+	// Determine scopes
 	resolvedScopes, err := s.resolveScopes(req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validar scopes
+	// Validate scopes
 	if err := s.validateScopes(resolvedScopes); err != nil {
 		return nil, err
 	}
 
-	// Generar token único usando configuración
+	// Generate unique token using configuration
 	token, err := invitation.GenerateInvitationToken(s.config.TokenByteLength)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to generate invitation token", errx.TypeInternal)
 	}
 
-	// Calcular fecha de expiración usando configuración
+	// Calculate expiration date using configuration
 	expiresIn := s.config.DefaultExpirationDays
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
 		expiresIn = *req.ExpiresIn
 	}
 	expiresAt := invitation.CalculateExpirationDate(expiresIn, s.config.DefaultExpirationDays)
 
-	// Crear invitación
+	// Create invitation
 	newInvitation := &invitation.Invitation{
 		ID:        uuid.NewString(),
 		TenantID:  tenantID,
@@ -119,7 +119,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 		UpdatedAt: time.Now(),
 	}
 
-	// Guardar invitación
+	// Save invitation
 	if err := s.invitationRepo.Save(ctx, *newInvitation); err != nil {
 		return nil, errx.Wrap(err, "failed to save invitation", errx.TypeInternal)
 	}
@@ -133,14 +133,14 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 	return newInvitation, nil
 }
 
-// GetInvitationByID obtiene una invitación por ID
+// GetInvitationByID gets an invitation by ID
 func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID string, tenantID kernel.TenantID) (*invitation.InvitationResponse, error) {
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return nil, invitation.ErrInvitationNotFound()
 	}
 
-	// Verificar que la invitación pertenece al tenant
+	// Check that the invitation belongs to the tenant
 	if inv.TenantID != tenantID {
 		return nil, invitation.ErrInvitationNotFound()
 	}
@@ -148,7 +148,7 @@ func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID 
 	return s.buildInvitationResponse(inv), nil
 }
 
-// GetInvitationByToken obtiene una invitación por token
+// GetInvitationByToken gets an invitation by token
 func (s *InvitationService) GetInvitationByToken(ctx context.Context, token string) (*invitation.InvitationResponse, error) {
 	inv, err := s.invitationRepo.FindByToken(ctx, token)
 	if err != nil {
@@ -158,7 +158,7 @@ func (s *InvitationService) GetInvitationByToken(ctx context.Context, token stri
 	return s.buildInvitationResponse(inv), nil
 }
 
-// ValidateInvitationToken valida un token de invitación sin aceptarlo
+// ValidateInvitationToken validates an invitation token without accepting it
 func (s *InvitationService) ValidateInvitationToken(ctx context.Context, token string) (*invitation.ValidateInvitationResponse, error) {
 	inv, err := s.invitationRepo.FindByToken(ctx, token)
 	if err != nil {
@@ -192,9 +192,9 @@ func (s *InvitationService) ValidateInvitationToken(ctx context.Context, token s
 	}, nil
 }
 
-// GetTenantInvitations obtiene todas las invitaciones de un tenant
+// GetTenantInvitations gets all invitations for a tenant
 func (s *InvitationService) GetTenantInvitations(ctx context.Context, tenantID kernel.TenantID) (*invitation.InvitationListResponse, error) {
-	// Verificar que el tenant existe
+	// Check that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -216,9 +216,9 @@ func (s *InvitationService) GetTenantInvitations(ctx context.Context, tenantID k
 	}, nil
 }
 
-// GetPendingInvitations obtiene invitaciones pendientes de un tenant
+// GetPendingInvitations gets pending invitations for a tenant
 func (s *InvitationService) GetPendingInvitations(ctx context.Context, tenantID kernel.TenantID) (*invitation.InvitationListResponse, error) {
-	// Verificar que el tenant existe
+	// Check that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -240,40 +240,40 @@ func (s *InvitationService) GetPendingInvitations(ctx context.Context, tenantID 
 	}, nil
 }
 
-// RevokeInvitation revoca una invitación
+// RevokeInvitation revokes an invitation
 func (s *InvitationService) RevokeInvitation(ctx context.Context, invitationID string, tenantID kernel.TenantID) error {
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return invitation.ErrInvitationNotFound()
 	}
 
-	// Verificar que la invitación pertenece al tenant
+	// Check that the invitation belongs to the tenant
 	if inv.TenantID != tenantID {
 		return invitation.ErrInvitationNotFound()
 	}
 
-	// Revocar invitación
+	// Revoke invitation
 	if err := inv.Revoke(); err != nil {
 		return err
 	}
 
-	// Guardar cambios
+	// Save changes
 	return s.invitationRepo.Save(ctx, *inv)
 }
 
-// DeleteInvitation elimina una invitación
+// DeleteInvitation deletes an invitation
 func (s *InvitationService) DeleteInvitation(ctx context.Context, invitationID string, tenantID kernel.TenantID) error {
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return invitation.ErrInvitationNotFound()
 	}
 
-	// Verificar que la invitación pertenece al tenant
+	// Check that the invitation belongs to the tenant
 	if inv.TenantID != tenantID {
 		return invitation.ErrInvitationNotFound()
 	}
 
-	// Solo se pueden eliminar invitaciones que no han sido aceptadas
+	// Only non-accepted invitations can be deleted
 	if inv.Status == invitation.InvitationStatusAccepted {
 		return errx.New("cannot delete accepted invitation", errx.TypeBusiness)
 	}
@@ -281,8 +281,8 @@ func (s *InvitationService) DeleteInvitation(ctx context.Context, invitationID s
 	return s.invitationRepo.Delete(ctx, invitationID)
 }
 
-// CleanupExpiredInvitations marca invitaciones expiradas
-// Este método debería ser llamado por un cronjob
+// CleanupExpiredInvitations marks expired invitations
+// This method should be called by a cronjob
 func (s *InvitationService) CleanupExpiredInvitations(ctx context.Context) (int, error) {
 	expiredInvitations, err := s.invitationRepo.FindExpired(ctx)
 	if err != nil {
@@ -302,49 +302,25 @@ func (s *InvitationService) CleanupExpiredInvitations(ctx context.Context) (int,
 	return count, nil
 }
 
-// GetAvailableScopeTemplates retorna las plantillas de scopes disponibles
-func (s *InvitationService) GetAvailableScopeTemplates() []string {
-	templates := make([]string, 0, len(scopes.ScopeGroups))
-	for template := range scopes.ScopeGroups {
-		templates = append(templates, template)
-	}
-	return templates
-}
-
 // ============================================================================
 // Private Helper Methods
 // ============================================================================
 
-// resolveScopes determina los scopes finales basándose en la request
+// resolveScopes determines the final scopes based on the request
 func (s *InvitationService) resolveScopes(req invitation.CreateInvitationRequest) ([]string, error) {
-	// Si se proporcionan scopes directamente, usarlos
 	if len(req.Scopes) > 0 {
 		return req.Scopes, nil
 	}
-
-	// Si se proporciona un template, expandirlo
-	if req.ScopeTemplate != nil && *req.ScopeTemplate != "" {
-		scopeList := scopes.GetScopesByGroup(*req.ScopeTemplate)
-		if len(scopeList) == 0 {
-			return nil, invitation.ErrInvalidScopeTemplate().
-				WithDetail("template", *req.ScopeTemplate).
-				WithDetail("available_templates", s.GetAvailableScopeTemplates())
-		}
-		return scopeList, nil
-	}
-
-	// Default: usar template "viewer" o scopes básicos
-	defaultScopes := scopes.GetScopesByGroup("viewer")
-	return defaultScopes, nil
+	return []string{}, nil
 }
 
-// validateScopes valida que los scopes sean válidos
+// validateScopes validates that the scopes are valid
 func (s *InvitationService) validateScopes(scopesList []string) error {
 	if len(scopesList) == 0 {
 		return invitation.ErrInvalidScopes().WithDetail("reason", "at least one scope is required")
 	}
 
-	// Validar cada scope
+	// Validate each scope
 	invalidScopes := []string{}
 	for _, scope := range scopesList {
 		if !scopes.ValidateScope(scope) {
@@ -355,16 +331,15 @@ func (s *InvitationService) validateScopes(scopesList []string) error {
 	if len(invalidScopes) > 0 {
 		return invitation.ErrInvalidScopes().
 			WithDetail("invalid_scopes", invalidScopes).
-			WithDetail("hint", "Use GetAvailableScopeTemplates() to see valid options")
+			WithDetail("hint", "Use GET /scopes to see valid scopes")
 	}
 
 	return nil
 }
 
-// buildInvitationResponse construye una respuesta completa
+// buildInvitationResponse builds a complete response
 func (s *InvitationService) buildInvitationResponse(inv *invitation.Invitation) *invitation.InvitationResponse {
 	return &invitation.InvitationResponse{
-		Invitation:     *inv,
-		ScopeTemplates: s.GetAvailableScopeTemplates(),
+		Invitation: *inv,
 	}
 }

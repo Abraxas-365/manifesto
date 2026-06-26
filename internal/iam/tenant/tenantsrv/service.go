@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// TenantService proporciona operaciones de negocio para tenants
+// TenantService provides business operations for tenants
 type TenantService struct {
 	tenantRepo       tenant.TenantRepository
 	tenantConfigRepo tenant.TenantConfigRepository
@@ -20,7 +20,7 @@ type TenantService struct {
 	config           *config.TenantConfig
 }
 
-// NewTenantService crea una nueva instancia del servicio de tenants
+// NewTenantService creates a new instance of the tenant service
 func NewTenantService(
 	tenantRepo tenant.TenantRepository,
 	tenantConfigRepo tenant.TenantConfigRepository,
@@ -35,13 +35,13 @@ func NewTenantService(
 	}
 }
 
-// CreateTenant crea un nuevo tenant
+// CreateTenant creates a new tenant
 func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenantRequest) (*tenant.Tenant, error) {
-	// Crear nuevo tenant
+	// Create new tenant
 	newTenant := &tenant.Tenant{
 		ID:                    kernel.NewTenantID(uuid.NewString()),
 		CompanyName:           req.CompanyName,
-		Status:                tenant.TenantStatusTrial, // Empieza en trial
+		Status:                tenant.TenantStatusTrial, // Starts in trial
 		SubscriptionPlan:      tenant.PlanTrial,
 		MaxUsers:              s.getMaxUsersForPlan(tenant.PlanTrial),
 		CurrentUsers:          0,
@@ -51,7 +51,7 @@ func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenan
 		UpdatedAt:             time.Now().UTC(),
 	}
 
-	// Si se especificó un plan diferente, usar ese
+	// If a different plan was specified, use that
 	if req.SubscriptionPlan != "" {
 		newTenant.SubscriptionPlan = req.SubscriptionPlan
 		newTenant.MaxUsers = s.getMaxUsersForPlan(req.SubscriptionPlan)
@@ -61,7 +61,7 @@ func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenan
 		}
 	}
 
-	// Guardar tenant
+	// Save tenant
 	if err := s.tenantRepo.Save(ctx, *newTenant); err != nil {
 		return nil, errx.Wrap(err, "failed to save tenant", errx.TypeInternal)
 	}
@@ -69,17 +69,17 @@ func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenan
 	return newTenant, nil
 }
 
-// GetTenantByID obtiene un tenant por ID
+// GetTenantByID retrieves a tenant by ID
 func (s *TenantService) GetTenantByID(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantResponse, error) {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
 	}
 
-	// Obtener configuraciones del tenant
+	// Get tenant configurations
 	config, err := s.tenantConfigRepo.FindByTenant(ctx, tenantID)
 	if err != nil {
-		config = make(map[string]string) // Default a empty config
+		config = make(map[string]string) // Default to empty config
 	}
 
 	return &tenant.TenantResponse{
@@ -88,7 +88,7 @@ func (s *TenantService) GetTenantByID(ctx context.Context, tenantID kernel.Tenan
 	}, nil
 }
 
-// GetAllTenants obtiene todos los tenants
+// GetAllTenants retrieves all tenants
 func (s *TenantService) GetAllTenants(ctx context.Context) (*tenant.TenantListResponse, error) {
 	tenants, err := s.tenantRepo.FindAll(ctx)
 	if err != nil {
@@ -113,7 +113,7 @@ func (s *TenantService) GetAllTenants(ctx context.Context) (*tenant.TenantListRe
 	}, nil
 }
 
-// GetActiveTenants obtiene todos los tenants activos
+// GetActiveTenants retrieves all active tenants
 func (s *TenantService) GetActiveTenants(ctx context.Context) (*tenant.TenantListResponse, error) {
 	tenants, err := s.tenantRepo.FindActive(ctx)
 	if err != nil {
@@ -138,14 +138,14 @@ func (s *TenantService) GetActiveTenants(ctx context.Context) (*tenant.TenantLis
 	}, nil
 }
 
-// UpdateTenant actualiza un tenant
+// UpdateTenant updates a tenant
 func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.TenantID, req tenant.UpdateTenantRequest) (*tenant.Tenant, error) {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
 	}
 
-	// Actualizar campos si se proporcionaron
+	// Update fields if provided
 	if req.CompanyName != nil {
 		tenantEntity.CompanyName = *req.CompanyName
 	}
@@ -160,7 +160,7 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.Tenant
 
 	tenantEntity.UpdatedAt = time.Now().UTC()
 
-	// Guardar cambios
+	// Save changes
 	if err := s.tenantRepo.Save(ctx, *tenantEntity); err != nil {
 		return nil, errx.Wrap(err, "failed to update tenant", errx.TypeInternal)
 	}
@@ -168,7 +168,7 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.Tenant
 	return tenantEntity, nil
 }
 
-// SuspendTenant suspende un tenant
+// SuspendTenant suspends a tenant
 func (s *TenantService) SuspendTenant(ctx context.Context, tenantID kernel.TenantID, reason string) error {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -179,7 +179,7 @@ func (s *TenantService) SuspendTenant(ctx context.Context, tenantID kernel.Tenan
 	return s.tenantRepo.Save(ctx, *tenantEntity)
 }
 
-// ActivateTenant activa un tenant
+// ActivateTenant activates a tenant
 func (s *TenantService) ActivateTenant(ctx context.Context, tenantID kernel.TenantID) error {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -190,7 +190,7 @@ func (s *TenantService) ActivateTenant(ctx context.Context, tenantID kernel.Tena
 	return s.tenantRepo.Save(ctx, *tenantEntity)
 }
 
-// UpgradeTenantPlan mejora el plan de suscripción de un tenant
+// UpgradeTenantPlan upgrades the subscription plan of a tenant
 func (s *TenantService) UpgradeTenantPlan(ctx context.Context, tenantID kernel.TenantID, newPlan tenant.SubscriptionPlan) error {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -201,7 +201,7 @@ func (s *TenantService) UpgradeTenantPlan(ctx context.Context, tenantID kernel.T
 		return err
 	}
 
-	// Actualizar fecha de expiración de suscripción
+	// Update subscription expiration date
 	if newPlan != tenant.PlanTrial {
 		expirationDate := s.calculateSubscriptionExpiration()
 		tenantEntity.SubscriptionExpiresAt = expirationDate
@@ -210,9 +210,9 @@ func (s *TenantService) UpgradeTenantPlan(ctx context.Context, tenantID kernel.T
 	return s.tenantRepo.Save(ctx, *tenantEntity)
 }
 
-// GetTenantUsers obtiene todos los usuarios de un tenant
+// GetTenantUsers retrieves all users for a tenant
 func (s *TenantService) GetTenantUsers(ctx context.Context, tenantID kernel.TenantID) ([]*user.User, error) {
-	// Verificar que el tenant existe
+	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -226,9 +226,9 @@ func (s *TenantService) GetTenantUsers(ctx context.Context, tenantID kernel.Tena
 	return users, nil
 }
 
-// SetTenantConfig establece una configuración del tenant
+// SetTenantConfig sets a tenant configuration
 func (s *TenantService) SetTenantConfig(ctx context.Context, tenantID kernel.TenantID, key, value string) error {
-	// Verificar que el tenant existe
+	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return tenant.ErrTenantNotFound()
@@ -237,9 +237,9 @@ func (s *TenantService) SetTenantConfig(ctx context.Context, tenantID kernel.Ten
 	return s.tenantConfigRepo.SaveSetting(ctx, tenantID, key, value)
 }
 
-// GetTenantConfig obtiene todas las configuraciones del tenant
+// GetTenantConfig retrieves all tenant configurations
 func (s *TenantService) GetTenantConfig(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantConfigResponse, error) {
-	// Verificar que el tenant existe
+	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -256,9 +256,9 @@ func (s *TenantService) GetTenantConfig(ctx context.Context, tenantID kernel.Ten
 	}, nil
 }
 
-// DeleteTenantConfig elimina una configuración del tenant
+// DeleteTenantConfig deletes a tenant configuration
 func (s *TenantService) DeleteTenantConfig(ctx context.Context, tenantID kernel.TenantID, key string) error {
-	// Verificar que el tenant existe
+	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return tenant.ErrTenantNotFound()
@@ -267,14 +267,14 @@ func (s *TenantService) DeleteTenantConfig(ctx context.Context, tenantID kernel.
 	return s.tenantConfigRepo.DeleteSetting(ctx, tenantID, key)
 }
 
-// GetTenantStats obtiene estadísticas del tenant
+// GetTenantStats retrieves tenant statistics
 func (s *TenantService) GetTenantStats(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantStatsResponse, error) {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
 	}
 
-	// Contar usuarios activos
+	// Count active users
 	users, err := s.userRepo.FindByTenant(ctx, tenantID)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to get users for stats", errx.TypeInternal)
@@ -297,13 +297,13 @@ func (s *TenantService) GetTenantStats(ctx context.Context, tenantID kernel.Tena
 		IsSubscriptionExpired: tenantEntity.IsSubscriptionExpired(),
 	}
 
-	// Calcular días hasta expiración
+	// Calculate days until expiration
 	if tenantEntity.SubscriptionExpiresAt != nil && !tenantEntity.IsSubscriptionExpired() {
 		days := int(time.Until(*tenantEntity.SubscriptionExpiresAt).Hours() / 24)
 		stats.DaysUntilExpiration = &days
 	}
 
-	// Determinar estado de suscripción
+	// Determine subscription status
 	if tenantEntity.IsTrialExpired() {
 		stats.SubscriptionStatus = "Trial Expired"
 	} else if tenantEntity.IsSubscriptionExpired() {
@@ -317,7 +317,7 @@ func (s *TenantService) GetTenantStats(ctx context.Context, tenantID kernel.Tena
 	return stats, nil
 }
 
-// GetTenantUsage obtiene información de uso del tenant
+// GetTenantUsage retrieves tenant usage information
 func (s *TenantService) GetTenantUsage(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantUsageResponse, error) {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -336,26 +336,26 @@ func (s *TenantService) GetTenantUsage(ctx context.Context, tenantID kernel.Tena
 	return usage, nil
 }
 
-// DeleteTenant elimina un tenant (soft delete recomendado)
+// DeleteTenant deletes a tenant (soft delete recommended)
 func (s *TenantService) DeleteTenant(ctx context.Context, tenantID kernel.TenantID) error {
-	// Verificar que el tenant existe
+	// Verify that the tenant exists
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return tenant.ErrTenantNotFound()
 	}
 
-	// Verificar que no tenga usuarios activos
+	// Verify that there are no active users
 	users, err := s.userRepo.FindByTenant(ctx, tenantID)
 	if err == nil && len(users) > 0 {
 		return tenant.ErrTenantHasUsers()
 	}
 
-	// En lugar de eliminar, suspender permanentemente
+	// Instead of deleting, permanently suspend
 	tenantEntity.Suspend("Tenant deleted")
 	return s.tenantRepo.Save(ctx, *tenantEntity)
 }
 
-// BulkSuspendTenants suspende múltiples tenants
+// BulkSuspendTenants suspends multiple tenants
 func (s *TenantService) BulkSuspendTenants(ctx context.Context, tenantIDs []kernel.TenantID, reason string) (*tenant.BulkTenantOperationResponse, error) {
 	result := &tenant.BulkTenantOperationResponse{
 		Successful: []kernel.TenantID{},
@@ -374,7 +374,7 @@ func (s *TenantService) BulkSuspendTenants(ctx context.Context, tenantIDs []kern
 	return result, nil
 }
 
-// BulkActivateTenants activa múltiples tenants
+// BulkActivateTenants activates multiple tenants
 func (s *TenantService) BulkActivateTenants(ctx context.Context, tenantIDs []kernel.TenantID) (*tenant.BulkTenantOperationResponse, error) {
 	result := &tenant.BulkTenantOperationResponse{
 		Successful: []kernel.TenantID{},

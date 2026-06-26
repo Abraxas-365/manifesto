@@ -10,19 +10,19 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// PostgresTenantRepository implementación de PostgreSQL para TenantRepository
+// PostgresTenantRepository is the PostgreSQL implementation of TenantRepository
 type PostgresTenantRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresTenantRepository crea una nueva instancia del repositorio de tenants
+// NewPostgresTenantRepository creates a new instance of the tenant repository
 func NewPostgresTenantRepository(db *sqlx.DB) tenant.TenantRepository {
 	return &PostgresTenantRepository{
 		db: db,
 	}
 }
 
-// FindByID busca un tenant por ID
+// FindByID finds a tenant by ID
 func (r *PostgresTenantRepository) FindByID(ctx context.Context, id kernel.TenantID) (*tenant.Tenant, error) {
 	query := `
 		SELECT
@@ -45,7 +45,7 @@ func (r *PostgresTenantRepository) FindByID(ctx context.Context, id kernel.Tenan
 	return &t, nil
 }
 
-// FindAll busca todos los tenants
+// FindAll finds all tenants
 func (r *PostgresTenantRepository) FindAll(ctx context.Context) ([]*tenant.Tenant, error) {
 	query := `
 		SELECT
@@ -61,7 +61,7 @@ func (r *PostgresTenantRepository) FindAll(ctx context.Context) ([]*tenant.Tenan
 		return nil, errx.Wrap(err, "failed to find all tenants", errx.TypeInternal)
 	}
 
-	// Convertir a slice de punteros
+	// Convert to slice of pointers
 	result := make([]*tenant.Tenant, len(tenants))
 	for i := range tenants {
 		result[i] = &tenants[i]
@@ -70,7 +70,7 @@ func (r *PostgresTenantRepository) FindAll(ctx context.Context) ([]*tenant.Tenan
 	return result, nil
 }
 
-// FindActive busca todos los tenants activos
+// FindActive finds all active tenants
 func (r *PostgresTenantRepository) FindActive(ctx context.Context) ([]*tenant.Tenant, error) {
 	query := `
 		SELECT
@@ -87,7 +87,7 @@ func (r *PostgresTenantRepository) FindActive(ctx context.Context) ([]*tenant.Te
 		return nil, errx.Wrap(err, "failed to find active tenants", errx.TypeInternal)
 	}
 
-	// Convertir a slice de punteros
+	// Convert to slice of pointers
 	result := make([]*tenant.Tenant, len(tenants))
 	for i := range tenants {
 		result[i] = &tenants[i]
@@ -96,9 +96,9 @@ func (r *PostgresTenantRepository) FindActive(ctx context.Context) ([]*tenant.Te
 	return result, nil
 }
 
-// Save guarda o actualiza un tenant
+// Save saves or updates a tenant
 func (r *PostgresTenantRepository) Save(ctx context.Context, t tenant.Tenant) error {
-	// Verificar si el tenant ya existe
+	// Check if the tenant already exists
 	exists, err := r.tenantExists(ctx, t.ID)
 	if err != nil {
 		return errx.Wrap(err, "failed to check tenant existence", errx.TypeInternal)
@@ -110,7 +110,7 @@ func (r *PostgresTenantRepository) Save(ctx context.Context, t tenant.Tenant) er
 	return r.create(ctx, t)
 }
 
-// create crea un nuevo tenant
+// create creates a new tenant
 func (r *PostgresTenantRepository) create(ctx context.Context, t tenant.Tenant) error {
 	query := `
 		INSERT INTO tenants (
@@ -132,7 +132,7 @@ func (r *PostgresTenantRepository) create(ctx context.Context, t tenant.Tenant) 
 	return nil
 }
 
-// update actualiza un tenant existente
+// update updates an existing tenant
 func (r *PostgresTenantRepository) update(ctx context.Context, t tenant.Tenant) error {
 	query := `
 		UPDATE tenants SET
@@ -164,7 +164,7 @@ func (r *PostgresTenantRepository) update(ctx context.Context, t tenant.Tenant) 
 	return nil
 }
 
-// Delete elimina un tenant
+// Delete deletes a tenant
 func (r *PostgresTenantRepository) Delete(ctx context.Context, id kernel.TenantID) error {
 	query := `DELETE FROM tenants WHERE id = $1`
 
@@ -186,7 +186,7 @@ func (r *PostgresTenantRepository) Delete(ctx context.Context, id kernel.TenantI
 	return nil
 }
 
-// tenantExists verifica si un tenant existe por ID
+// tenantExists checks if a tenant exists by ID
 func (r *PostgresTenantRepository) tenantExists(ctx context.Context, id kernel.TenantID) (bool, error) {
 	query := `SELECT EXISTS(SELECT 1 FROM tenants WHERE id = $1)`
 
@@ -204,22 +204,22 @@ func (r *PostgresTenantRepository) tenantExists(ctx context.Context, id kernel.T
 // TenantConfigRepository Implementation
 // ============================================================================
 
-// PostgresTenantConfigRepository implementación de PostgreSQL para TenantConfigRepository
+// PostgresTenantConfigRepository is the PostgreSQL implementation of TenantConfigRepository
 type PostgresTenantConfigRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresTenantConfigRepository crea una nueva instancia del repositorio de configuración de tenants
+// NewPostgresTenantConfigRepository creates a new instance of the tenant configuration repository
 func NewPostgresTenantConfigRepository(db *sqlx.DB) tenant.TenantConfigRepository {
 	return &PostgresTenantConfigRepository{
 		db: db,
 	}
 }
 
-// FindByTenant busca toda la configuración de un tenant
+// FindByTenant finds all configuration for a tenant
 func (r *PostgresTenantConfigRepository) FindByTenant(ctx context.Context, tenantID kernel.TenantID) (map[string]string, error) {
 	query := `
-		SELECT key, value 
+		SELECT config_key, config_value 
 		FROM tenant_config 
 		WHERE tenant_id = $1`
 
@@ -246,13 +246,13 @@ func (r *PostgresTenantConfigRepository) FindByTenant(ctx context.Context, tenan
 	return config, nil
 }
 
-// SaveSetting guarda una configuración específica de un tenant
+// SaveSetting saves a specific configuration setting for a tenant
 func (r *PostgresTenantConfigRepository) SaveSetting(ctx context.Context, tenantID kernel.TenantID, key, value string) error {
 	query := `
-		INSERT INTO tenant_config (tenant_id, key, value, created_at, updated_at)
+		INSERT INTO tenant_config (tenant_id, config_key, config_value, created_at, updated_at)
 		VALUES ($1, $2, $3, NOW(), NOW())
-		ON CONFLICT (tenant_id, key) DO UPDATE
-		SET value = EXCLUDED.value, updated_at = NOW()`
+		ON CONFLICT (tenant_id, config_key) DO UPDATE
+		SET config_value = EXCLUDED.config_value, updated_at = NOW()`
 
 	_, err := r.db.ExecContext(ctx, query, tenantID.String(), key, value)
 	if err != nil {
@@ -264,9 +264,9 @@ func (r *PostgresTenantConfigRepository) SaveSetting(ctx context.Context, tenant
 	return nil
 }
 
-// DeleteSetting elimina una configuración específica de un tenant
+// DeleteSetting deletes a specific configuration setting for a tenant
 func (r *PostgresTenantConfigRepository) DeleteSetting(ctx context.Context, tenantID kernel.TenantID, key string) error {
-	query := `DELETE FROM tenant_config WHERE tenant_id = $1 AND key = $2`
+	query := `DELETE FROM tenant_config WHERE tenant_id = $1 AND config_key = $2`
 
 	result, err := r.db.ExecContext(ctx, query, tenantID.String(), key)
 	if err != nil {

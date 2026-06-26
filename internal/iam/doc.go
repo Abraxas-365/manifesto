@@ -12,7 +12,8 @@
 //   - iam/invitation   — Invitation flow for onboarding users
 //   - iam/apikey       — API key generation, validation, and management
 //   - iam/otp          — One-time password generation and verification
-//   - iam/scopes       — Scope definitions, groups, and validation
+//   - iam/scopes       — Scope definitions and validation
+//   - iam/role         — Role entity, user-role assignments
 //
 // # Architecture
 //
@@ -52,10 +53,7 @@
 //
 // Authorization is scope-based. Scopes follow the pattern "resource:action"
 // (e.g., "users:read", "tenants:write"). The wildcard "*" grants full access.
-// Scope groups (templates) make it easy to assign predefined sets of scopes:
-//
-//	super_admin, platform_admin, tenant_admin, user_manager,
-//	analyst, api_admin, settings_admin, auditor, viewer
+// Scopes can be assigned directly to users or grouped into roles.
 //
 // # Middleware
 //
@@ -76,6 +74,10 @@
 //	passwordlessHandlers.RegisterRoutes(app)   // OTP login/signup
 //	invitationHandlers.RegisterRoutes(app, mw) // Invitation management
 //	apiKeyHandlers.RegisterRoutes(app, mw)     // API key management
+//	roleHandlers.RegisterRoutes(app, mw)       // Role management
+//	scopeHandlers.RegisterRoutes(app, mw)      // Scope catalog + user scopes
+//	userHandlers.RegisterRoutes(app, mw)       // User CRUD
+//	tenantHandlers.RegisterRoutes(app, mw)     // Tenant CRUD
 //
 // Protect a route group:
 //
@@ -360,14 +362,13 @@
 // ### POST /invitations
 //
 // Creates and sends an invitation to a new user. The inviting user must have the
-// "users:invite" scope or be an admin.
+// "users:invite" scope.
 //
 // Request body:
 //
 //	{
 //	  "email":          "newuser@example.com",
 //	  "scopes":         ["users:read", "reports:view"],  // direct scopes
-//	  "scope_template": "viewer",                        // OR a template name
 //	  "expires_in":     7                                // days, optional (default: configured)
 //	}
 //
@@ -378,8 +379,7 @@
 //	    "id": "...", "tenant_id": "...", "email": "...",
 //	    "status": "PENDING", "scopes": [...],
 //	    "expires_at": "2026-02-26T...", "created_at": "..."
-//	  },
-//	  "scope_templates": ["viewer", "tenant_admin", ...]
+//	  }
 //	}
 //
 // Error responses: 400 (invalid scopes), 401, 403 (insufficient permissions),
@@ -439,11 +439,184 @@
 //	{
 //	  "valid": true,
 //	  "invitation": { ...InvitationDetailsDTO },
-//	  "message": "Invitación válida"
+//	  "message": "Valid invitation"
 //	}
 //
 //	// or when invalid:
-//	{ "valid": false, "message": "Invitación expirada" }
+//	{ "valid": false, "message": "Invitation expired" }
+//
+// ## Roles  (registered by RoleHandlers — requires authentication)
+//
+// Roles are named collections of scopes that can be assigned to users.
+// All role endpoints require authentication plus a specific scope.
+//
+// ### POST /roles
+//
+// Creates a new role for the authenticated tenant.
+// Required scope: roles:write
+//
+// Request body:
+//
+//	{
+//	  "name":        "Editor",
+//	  "description": "Can edit content",
+//	  "scopes":      ["content:read", "content:write"]
+//	}
+//
+// Response 201: RoleDTO
+// Error responses: 400 (validation), 401, 403 (insufficient scope), 409 (name already exists)
+//
+// ### GET /roles
+//
+// Lists all roles for the authenticated tenant.
+// Required scope: roles:read
+//
+// Response 200:
+//
+//	{ "roles": [ ...RoleDTO ], "total": 5 }
+//
+// ### GET /roles/:id
+//
+// Gets a single role by its UUID.
+// Required scope: roles:read
+//
+// Response 200: RoleDTO
+// Error responses: 401, 403, 404
+//
+// ### PUT /roles/:id
+//
+// Updates a role's name, description, or scopes.
+// Required scope: roles:write
+//
+// Request body (all fields optional):
+//
+//	{
+//	  "name":        "Senior Editor",
+//	  "description": "Updated description",
+//	  "scopes":      ["content:read", "content:write", "content:delete"]
+//	}
+//
+// Response 200: RoleDTO
+// Error responses: 401, 403, 404
+//
+// ### DELETE /roles/:id
+//
+// Deletes a role.
+// Required scope: roles:delete
+//
+// Response 200: { "message": "Role deleted successfully" }
+// Error responses: 401, 403, 404
+//
+// ### POST /roles/:id/assign
+//
+// Assigns a role to a user.
+// Required scope: roles:assign
+//
+// Request body:
+//
+//	{ "user_id": "..." }
+//
+// Response 200: { "message": "Role assigned successfully" }
+// Error responses: 401, 403, 404, 409 (already assigned)
+//
+// ### DELETE /roles/:id/users/:userId
+//
+// Unassigns a role from a user.
+// Required scope: roles:assign
+//
+// Response 200: { "message": "Role unassigned successfully" }
+// Error responses: 401, 403, 404 (role or assignment not found)
+//
+// ### GET /users/:userId/roles
+//
+// Gets all roles assigned to a user, including direct and effective scopes.
+// Required scope: roles:read
+//
+// Response 200:
+//
+//	{
+//	  "user_id": "...",
+//	  "roles": [ ...RoleDTO ],
+//	  "direct_scopes":    ["users:read"],
+//	  "effective_scopes": ["users:read", "content:read", "content:write"]
+//	}
+//
+// ## Scopes  (registered by ScopeHandlers — requires authentication)
+//
+// Scopes are fine-grained permissions that can be assigned directly to users
+// or grouped via roles. The scopes endpoints provide a catalog of all available
+// scopes and allow managing direct scope assignments on users.
+//
+// ### GET /scopes
+//
+// Returns all available scopes in the system, grouped by category with descriptions.
+// Required scope: scopes:read
+//
+// Response 200:
+//
+//	{
+//	  "total_scopes": 42,
+//	  "categories": {
+//	    "Administration": [
+//	      { "name": "*", "description": "Full access to all system resources", "category": "Administration" },
+
+//	    ],
+//	    "Roles": [
+//	      { "name": "roles:read", "description": "View roles", "category": "Roles" }
+//	    ]
+//	  }
+//	}
+//
+// ### GET /users/:userId/scopes
+//
+// Gets the direct scopes assigned to a user (does not include scopes inherited from roles).
+// Required scope: scopes:read
+//
+// Response 200:
+//
+//	{
+//	  "user_id": "...",
+//	  "scopes": ["users:read", "reports:view"],
+//	  "scope_details": [
+//	    { "name": "users:read", "description": "View users", "category": "Users" }
+//	  ]
+//	}
+//
+// ### PUT /users/:userId/scopes
+//
+// Replaces all direct scopes for a user.
+// Required scope: scopes:write
+//
+// Request body:
+//
+//	{ "scopes": ["users:read", "reports:view", "roles:read"] }
+//
+// Response 200: { "message": "Scopes updated successfully" }
+// Error responses: 400 (invalid scopes), 401, 403, 404
+//
+// ### POST /users/:userId/scopes
+//
+// Adds scopes to a user without removing existing ones.
+// Required scope: scopes:assign
+//
+// Request body:
+//
+//	{ "scopes": ["reports:export"] }
+//
+// Response 200: { "message": "Scopes added successfully" }
+// Error responses: 400 (invalid scopes), 401, 403, 404
+//
+// ### DELETE /users/:userId/scopes
+//
+// Removes specific scopes from a user.
+// Required scope: scopes:assign
+//
+// Request body:
+//
+//	{ "scopes": ["reports:view"] }
+//
+// Response 200: { "message": "Scopes removed successfully" }
+// Error responses: 400 (invalid scopes), 401, 403, 404
 //
 // ## API Keys  (registered by APIKeyHandlers — requires authentication)
 //
@@ -552,7 +725,7 @@
 //
 //	{
 //	  "code":    "USER.NOT_FOUND",
-//	  "message": "Usuario no encontrado",
+//	  "message": "User not found",
 //	  "type":    "NOT_FOUND",
 //	  "details": { "user_id": "abc-123" }
 //	}
@@ -579,7 +752,6 @@
 //	USER.ALREADY_EXISTS         — 409
 //	USER.SUSPENDED              — 403
 //	USER.INVALID_SCOPES         — 400
-//	USER.INVALID_SCOPE_TEMPLATE — 400
 //
 //	TENANT.NOT_FOUND            — 404
 //	TENANT.SUSPENDED            — 403

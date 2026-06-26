@@ -11,19 +11,19 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// PostgresSessionRepository implementación de PostgreSQL para SessionRepository
+// PostgresSessionRepository is the PostgreSQL implementation of SessionRepository
 type PostgresSessionRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresSessionRepository crea una nueva instancia del repositorio de sesiones
+// NewPostgresSessionRepository creates a new session repository instance
 func NewPostgresSessionRepository(db *sqlx.DB) auth.SessionRepository {
 	return &PostgresSessionRepository{
 		db: db,
 	}
 }
 
-// SaveSession guarda una nueva sesión de usuario
+// SaveSession saves a new user session
 func (r *PostgresSessionRepository) SaveSession(ctx context.Context, session auth.UserSession) error {
 	query := `
 		INSERT INTO user_sessions (
@@ -43,7 +43,7 @@ func (r *PostgresSessionRepository) SaveSession(ctx context.Context, session aut
 	return nil
 }
 
-// FindSession busca una sesión por ID
+// FindSession finds a session by ID
 func (r *PostgresSessionRepository) FindSession(ctx context.Context, sessionID string) (*auth.UserSession, error) {
 	query := `
 		SELECT 
@@ -66,7 +66,7 @@ func (r *PostgresSessionRepository) FindSession(ctx context.Context, sessionID s
 	return &session, nil
 }
 
-// FindSessionByToken busca una sesión por token
+// FindSessionByToken finds a session by token
 func (r *PostgresSessionRepository) FindSessionByToken(ctx context.Context, sessionToken string) (*auth.UserSession, error) {
 	query := `
 		SELECT 
@@ -87,7 +87,7 @@ func (r *PostgresSessionRepository) FindSessionByToken(ctx context.Context, sess
 	return &session, nil
 }
 
-// FindUserSessions busca todas las sesiones activas de un usuario
+// FindUserSessions finds all active sessions for a user
 func (r *PostgresSessionRepository) FindUserSessions(ctx context.Context, userID kernel.UserID) ([]*auth.UserSession, error) {
 	query := `
 		SELECT 
@@ -104,7 +104,7 @@ func (r *PostgresSessionRepository) FindUserSessions(ctx context.Context, userID
 			WithDetail("user_id", userID.String())
 	}
 
-	// Convertir a slice de punteros
+	// Convert to pointer slice
 	result := make([]*auth.UserSession, len(sessions))
 	for i := range sessions {
 		result[i] = &sessions[i]
@@ -113,7 +113,7 @@ func (r *PostgresSessionRepository) FindUserSessions(ctx context.Context, userID
 	return result, nil
 }
 
-// UpdateSessionActivity actualiza la última actividad de una sesión
+// UpdateSessionActivity updates the last activity of a session
 func (r *PostgresSessionRepository) UpdateSessionActivity(ctx context.Context, sessionID string) error {
 	query := `
 		UPDATE user_sessions 
@@ -139,7 +139,7 @@ func (r *PostgresSessionRepository) UpdateSessionActivity(ctx context.Context, s
 	return nil
 }
 
-// RevokeSession revoca una sesión específica
+// RevokeSession revokes a specific session
 func (r *PostgresSessionRepository) RevokeSession(ctx context.Context, sessionID string) error {
 	query := `DELETE FROM user_sessions WHERE id = $1`
 
@@ -162,7 +162,7 @@ func (r *PostgresSessionRepository) RevokeSession(ctx context.Context, sessionID
 	return nil
 }
 
-// RevokeAllUserSessions revoca todas las sesiones de un usuario
+// RevokeAllUserSessions revokes all sessions for a user
 func (r *PostgresSessionRepository) RevokeAllUserSessions(ctx context.Context, userID kernel.UserID) error {
 	query := `DELETE FROM user_sessions WHERE user_id = $1`
 
@@ -175,7 +175,7 @@ func (r *PostgresSessionRepository) RevokeAllUserSessions(ctx context.Context, u
 	return nil
 }
 
-// CleanExpiredSessions elimina sesiones expiradas (para mantenimiento)
+// CleanExpiredSessions deletes expired sessions (for maintenance)
 func (r *PostgresSessionRepository) CleanExpiredSessions(ctx context.Context) error {
 	query := `DELETE FROM user_sessions WHERE expires_at < NOW()`
 
@@ -187,7 +187,7 @@ func (r *PostgresSessionRepository) CleanExpiredSessions(ctx context.Context) er
 	return nil
 }
 
-// ExtendSession extiende la expiración de una sesión
+// ExtendSession extends a session's expiration
 func (r *PostgresSessionRepository) ExtendSession(ctx context.Context, sessionID string, duration time.Duration) error {
 	query := `
 		UPDATE user_sessions 
@@ -215,7 +215,7 @@ func (r *PostgresSessionRepository) ExtendSession(ctx context.Context, sessionID
 	return nil
 }
 
-// CountActiveSessions cuenta las sesiones activas de un usuario
+// CountActiveSessions counts active sessions for a user
 func (r *PostgresSessionRepository) CountActiveSessions(ctx context.Context, userID kernel.UserID) (int, error) {
 	query := `
 		SELECT COUNT(*) 
@@ -232,7 +232,7 @@ func (r *PostgresSessionRepository) CountActiveSessions(ctx context.Context, use
 	return count, nil
 }
 
-// GetSessionsByIPAddress obtiene sesiones por dirección IP (para seguridad)
+// GetSessionsByIPAddress retrieves sessions by IP address (for security)
 func (r *PostgresSessionRepository) GetSessionsByIPAddress(ctx context.Context, ipAddress string) ([]*auth.UserSession, error) {
 	query := `
 		SELECT 
@@ -249,7 +249,7 @@ func (r *PostgresSessionRepository) GetSessionsByIPAddress(ctx context.Context, 
 			WithDetail("ip_address", ipAddress)
 	}
 
-	// Convertir a slice de punteros
+	// Convert to pointer slice
 	result := make([]*auth.UserSession, len(sessions))
 	for i := range sessions {
 		result[i] = &sessions[i]

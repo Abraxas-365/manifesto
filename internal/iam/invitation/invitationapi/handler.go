@@ -8,29 +8,29 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// InvitationHandlers maneja las rutas de invitaciones con Fiber
+// InvitationHandlers handles invitation routes with Fiber
 type InvitationHandlers struct {
 	service *invitationsrv.InvitationService
 }
 
-// NewInvitationHandlers crea un nuevo handler de invitaciones
+// NewInvitationHandlers creates a new invitation handler
 func NewInvitationHandlers(service *invitationsrv.InvitationService) *InvitationHandlers {
 	return &InvitationHandlers{
 		service: service,
 	}
 }
 
-// RegisterRoutes registra las rutas de invitaciones en Fiber
+// RegisterRoutes registers the invitation routes in Fiber
 func (h *InvitationHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	invitations := router.Group("/invitations", authMiddleware.Authenticate())
 
 	// Protected routes
-	invitations.Post("/", h.CreateInvitation)
-	invitations.Get("/", h.GetTenantInvitations)
-	invitations.Get("/pending", h.GetPendingInvitations)
-	invitations.Get("/:id", h.GetInvitationByID)
-	invitations.Delete("/:id", h.DeleteInvitation)
-	invitations.Post("/:id/revoke", h.RevokeInvitation)
+	invitations.Post("/", authMiddleware.RequireScope("invitations:write"), h.CreateInvitation)
+	invitations.Get("/", authMiddleware.RequireScope("invitations:read"), h.GetTenantInvitations)
+	invitations.Get("/pending", authMiddleware.RequireScope("invitations:read"), h.GetPendingInvitations)
+	invitations.Get("/:id", authMiddleware.RequireScope("invitations:read"), h.GetInvitationByID)
+	invitations.Delete("/:id", authMiddleware.RequireScope("invitations:delete"), h.DeleteInvitation)
+	invitations.Post("/:id/revoke", authMiddleware.RequireScope("invitations:revoke"), h.RevokeInvitation)
 
 	// Public routes
 	public := router.Group("/invitations/public")
@@ -38,7 +38,7 @@ func (h *InvitationHandlers) RegisterRoutes(router fiber.Router, authMiddleware 
 	public.Get("/token/:token", h.GetInvitationByToken)
 }
 
-// CreateInvitation crea una nueva invitación
+// CreateInvitation creates a new invitation
 func (h *InvitationHandlers) CreateInvitation(c *fiber.Ctx) error {
 	authContext, ok := auth.GetAuthContext(c)
 	if !ok {
@@ -58,7 +58,7 @@ func (h *InvitationHandlers) CreateInvitation(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	// Crear invitación
+	// Create invitation
 	inv, err := h.service.CreateInvitation(c.Context(), authContext.TenantID, *authContext.UserID, req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -69,7 +69,7 @@ func (h *InvitationHandlers) CreateInvitation(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(inv.ToDTO())
 }
 
-// GetTenantInvitations obtiene todas las invitaciones del tenant
+// GetTenantInvitations gets all invitations for the tenant
 func (h *InvitationHandlers) GetTenantInvitations(c *fiber.Ctx) error {
 	authContext, ok := auth.GetAuthContext(c)
 	if !ok {
@@ -88,7 +88,7 @@ func (h *InvitationHandlers) GetTenantInvitations(c *fiber.Ctx) error {
 	return c.JSON(invitations.ToDTO())
 }
 
-// GetPendingInvitations obtiene invitaciones pendientes del tenant
+// GetPendingInvitations gets pending invitations for the tenant
 func (h *InvitationHandlers) GetPendingInvitations(c *fiber.Ctx) error {
 	authContext, ok := auth.GetAuthContext(c)
 	if !ok {
@@ -107,7 +107,7 @@ func (h *InvitationHandlers) GetPendingInvitations(c *fiber.Ctx) error {
 	return c.JSON(invitations.ToDTO())
 }
 
-// GetInvitationByID obtiene una invitación por ID
+// GetInvitationByID gets an invitation by ID
 func (h *InvitationHandlers) GetInvitationByID(c *fiber.Ctx) error {
 	authContext, ok := auth.GetAuthContext(c)
 	if !ok {
@@ -133,7 +133,7 @@ func (h *InvitationHandlers) GetInvitationByID(c *fiber.Ctx) error {
 	return c.JSON(invitation.ToDTO())
 }
 
-// GetInvitationByToken obtiene una invitación por token (público)
+// GetInvitationByToken gets an invitation by token (public)
 func (h *InvitationHandlers) GetInvitationByToken(c *fiber.Ctx) error {
 	token := c.Params("token")
 	if token == "" {
@@ -152,7 +152,7 @@ func (h *InvitationHandlers) GetInvitationByToken(c *fiber.Ctx) error {
 	return c.JSON(invitation.ToDTO())
 }
 
-// ValidateInvitationToken valida un token de invitación (público)
+// ValidateInvitationToken validates an invitation token (public)
 func (h *InvitationHandlers) ValidateInvitationToken(c *fiber.Ctx) error {
 	token := c.Query("token")
 	if token == "" {
@@ -171,7 +171,7 @@ func (h *InvitationHandlers) ValidateInvitationToken(c *fiber.Ctx) error {
 	return c.JSON(response)
 }
 
-// RevokeInvitation revoca una invitación
+// RevokeInvitation revokes an invitation
 func (h *InvitationHandlers) RevokeInvitation(c *fiber.Ctx) error {
 	authContext, ok := auth.GetAuthContext(c)
 	if !ok {
@@ -199,7 +199,7 @@ func (h *InvitationHandlers) RevokeInvitation(c *fiber.Ctx) error {
 	})
 }
 
-// DeleteInvitation elimina una invitación
+// DeleteInvitation deletes an invitation
 func (h *InvitationHandlers) DeleteInvitation(c *fiber.Ctx) error {
 	authContext, ok := auth.GetAuthContext(c)
 	if !ok {

@@ -18,8 +18,13 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/iam/otp"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp/otpinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp/otpsrv"
+	"github.com/Abraxas-365/manifesto/internal/iam/role/roleapi"
+	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantapi"
+	"github.com/Abraxas-365/manifesto/internal/iam/role/roleinfra"
+	"github.com/Abraxas-365/manifesto/internal/iam/role/rolesrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantsrv"
+	"github.com/Abraxas-365/manifesto/internal/iam/user/userapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/userinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/usersrv"
 	"github.com/Abraxas-365/manifesto/internal/logx"
@@ -59,6 +64,7 @@ type Container struct {
 	InvitationService *invitationsrv.InvitationService
 	APIKeyService     *apikeysrv.APIKeyService
 	OTPService        *otpsrv.OTPService
+	RoleService       *rolesrv.RoleService
 	TokenService      auth.TokenService
 
 	// Auth handlers — needed by cmd/ to register routes
@@ -68,9 +74,12 @@ type Container struct {
 	// API handlers — needed by cmd/ to register routes
 	APIKeyHandlers     *apikeyapi.APIKeyHandlers
 	InvitationHandlers *invitationapi.InvitationHandlers
+	RoleHandlers       *roleapi.RoleHandlers
+	ScopeHandlers      *userapi.ScopeHandlers
+	UserHandlers       *userapi.UserHandlers
+	TenantHandlers     *tenantapi.TenantHandlers
 
 	// Middleware — needed by cmd/ to protect route groups
-	AuthMiddleware        *auth.TokenMiddleware
 	UnifiedAuthMiddleware *auth.UnifiedAuthMiddleware
 
 	// Background services
@@ -155,6 +164,14 @@ func New(deps Deps) *Container {
 		&deps.Cfg.Auth.OTP,
 	)
 
+	roleRepo := roleinfra.NewPostgresRoleRepository(deps.DB)
+
+	c.RoleService = rolesrv.NewRoleService(
+		roleRepo,
+		tenantRepo,
+		userRepo,
+	)
+
 	// ── OAuth providers ──────────────────────────────────────────────────
 
 	oauthServices := make(map[iam.OAuthProvider]auth.OAuthService)
@@ -191,6 +208,7 @@ func New(deps Deps) *Container {
 		stateManager,
 		invitationRepo,
 		auditService,
+		c.RoleService,
 		deps.Cfg,
 	)
 
@@ -203,6 +221,7 @@ func New(deps Deps) *Container {
 		invitationRepo,
 		c.OTPService,
 		auditService,
+		c.RoleService,
 		deps.Cfg,
 	)
 
@@ -210,10 +229,14 @@ func New(deps Deps) *Container {
 
 	c.APIKeyHandlers = apikeyapi.NewAPIKeyHandlers(c.APIKeyService)
 	c.InvitationHandlers = invitationapi.NewInvitationHandlers(c.InvitationService)
+	c.RoleHandlers = roleapi.NewRoleHandlers(c.RoleService)
+	c.ScopeHandlers = userapi.NewScopeHandlers(c.UserService)
+	c.UserHandlers = userapi.NewUserHandlers(c.UserService)
+	c.TenantHandlers = tenantapi.NewTenantHandlers(c.TenantService)
 
 	// ── Middleware ────────────────────────────────────────────────────────
 
-	c.AuthMiddleware = auth.NewAuthMiddleware(c.TokenService)
+
 	c.UnifiedAuthMiddleware = auth.NewAPIKeyMiddleware(c.APIKeyService, c.TokenService)
 
 	// ── Background services ──────────────────────────────────────────────

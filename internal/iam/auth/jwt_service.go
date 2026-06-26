@@ -9,7 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// JWTService implementación del TokenService usando JWT
+// JWTService is a JWT-based implementation of TokenService
 type JWTService struct {
 	secretKey       []byte
 	accessTokenTTL  time.Duration
@@ -18,7 +18,7 @@ type JWTService struct {
 	audience        []string
 }
 
-// NewJWTService crea una nueva instancia del servicio JWT
+// NewJWTServiceFromConfig creates a new JWT service instance from config
 func NewJWTServiceFromConfig(cfg *config.JWTConfig) *JWTService {
 	return &JWTService{
 		secretKey:       []byte(cfg.SecretKey),
@@ -29,7 +29,7 @@ func NewJWTServiceFromConfig(cfg *config.JWTConfig) *JWTService {
 	}
 }
 
-// Claims personalizados para JWT
+// JWTClaims holds custom JWT claims
 type JWTClaims struct {
 	UserID   kernel.UserID   `json:"user_id"`
 	TenantID kernel.TenantID `json:"tenant_id"`
@@ -39,11 +39,11 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-// GenerateAccessToken genera un token de acceso JWT
+// GenerateAccessToken generates a JWT access token
 func (j *JWTService) GenerateAccessToken(userID kernel.UserID, tenantID kernel.TenantID, claims map[string]any) (string, error) {
 	now := time.Now()
 
-	// Extraer claims adicionales
+	// Extract additional claims
 	email, _ := claims["email"].(string)
 	name, _ := claims["name"].(string)
 	scopes, _ := claims["scopes"].([]string)
@@ -79,10 +79,10 @@ func (j *JWTService) GenerateAccessToken(userID kernel.UserID, tenantID kernel.T
 	return tokenString, nil
 }
 
-// ValidateAccessToken valida y decodifica un token de acceso
+// ValidateAccessToken validates and decodes an access token
 func (j *JWTService) ValidateAccessToken(tokenString string) (*TokenClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (any, error) {
-		// Verificar el método de firma
+		// Verify the signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -113,7 +113,7 @@ func (j *JWTService) ValidateAccessToken(tokenString string) (*TokenClaims, erro
 	}, nil
 }
 
-// GenerateRefreshToken genera un token de refresh simple
+// GenerateRefreshToken generates a simple refresh token
 func (j *JWTService) GenerateRefreshToken(userID kernel.UserID) (string, error) {
 	now := time.Now()
 

@@ -12,9 +12,6 @@ var ScopeCategories map[string][]string
 // ScopeDescriptions combines common and domain-specific descriptions
 var ScopeDescriptions map[string]string
 
-// ScopeGroups combines common and domain-specific groups
-var ScopeGroups map[string][]string
-
 func init() {
 	// Merge categories
 	ScopeCategories = make(map[string][]string)
@@ -25,19 +22,6 @@ func init() {
 	ScopeDescriptions = make(map[string]string)
 	maps.Copy(ScopeDescriptions, CommonScopeDescriptions)
 	maps.Copy(ScopeDescriptions, DomainScopeDescriptions)
-
-	// Merge groups
-	ScopeGroups = make(map[string][]string)
-	maps.Copy(ScopeGroups, CommonScopeGroups)
-	maps.Copy(ScopeGroups, DomainScopeGroups)
-}
-
-// GetScopesByGroup returns all scopes for a given group
-func GetScopesByGroup(group string) []string {
-	if scopes, exists := ScopeGroups[group]; exists {
-		return scopes
-	}
-	return []string{}
 }
 
 // GetScopeDescription returns the description for a given scope

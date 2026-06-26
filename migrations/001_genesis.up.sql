@@ -318,3 +318,52 @@ ALTER TABLE otps ALTER COLUMN max_attempts SET NOT NULL;
 -- Remove hardcoded attempts limit (now enforced by max_attempts column)
 ALTER TABLE otps DROP CONSTRAINT IF EXISTS chk_otp_attempts;
 ALTER TABLE otps ADD CONSTRAINT chk_otp_attempts CHECK (attempts >= 0 AND attempts <= max_attempts);
+
+-- ============================================================================
+-- ROLES (AWS IAM-style role-based permissions)
+-- ============================================================================
+
+CREATE TABLE roles (
+    id VARCHAR(255) PRIMARY KEY,
+    tenant_id VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    scopes TEXT[] NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_roles_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    CONSTRAINT uq_roles_name_tenant UNIQUE (tenant_id, name)
+);
+
+CREATE INDEX idx_roles_tenant_id ON roles(tenant_id);
+CREATE INDEX idx_roles_name ON roles(name);
+CREATE INDEX idx_roles_scopes ON roles USING GIN(scopes);
+
+CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+COMMENT ON TABLE roles IS 'Named collections of scopes that can be assigned to users (like AWS IAM roles)';
+COMMENT ON COLUMN roles.scopes IS 'Array of permission scopes granted by this role';
+
+-- ============================================================================
+-- USER-ROLE ASSIGNMENTS
+-- ============================================================================
+
+CREATE TABLE user_roles (
+    user_id VARCHAR(255) NOT NULL,
+    role_id VARCHAR(255) NOT NULL,
+    tenant_id VARCHAR(255) NOT NULL,
+    assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (user_id, role_id, tenant_id),
+    CONSTRAINT fk_user_roles_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_roles_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_roles_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_user_roles_user_id ON user_roles(user_id);
+CREATE INDEX idx_user_roles_role_id ON user_roles(role_id);
+CREATE INDEX idx_user_roles_tenant_id ON user_roles(tenant_id);
+
+COMMENT ON TABLE user_roles IS 'Many-to-many assignment of roles to users within a tenant';

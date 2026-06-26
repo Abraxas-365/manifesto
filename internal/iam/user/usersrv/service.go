@@ -12,14 +12,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// UserService proporciona operaciones de negocio para usuarios
+// UserService provides business operations for users
 type UserService struct {
 	userRepo    user.UserRepository
 	tenantRepo  tenant.TenantRepository
 	passwordSvc user.PasswordService
 }
 
-// NewUserService crea una nueva instancia del servicio de usuarios
+// NewUserService creates a new user service instance
 func NewUserService(
 	userRepo user.UserRepository,
 	tenantRepo tenant.TenantRepository,
@@ -32,9 +32,9 @@ func NewUserService(
 	}
 }
 
-// CreateUser crea un nuevo usuario
-func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest, creatorID kernel.UserID) (*user.User, error) {
-	// Validar que el tenant exista y esté activo
+// CreateUser creates a new user
+func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest) (*user.User, error) {
+	// Validate that the tenant exists and is active
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, req.TenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -44,12 +44,12 @@ func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest
 		return nil, tenant.ErrTenantSuspended()
 	}
 
-	// Verificar que el tenant puede agregar más usuarios
+	// Verify the tenant can add more users
 	if !tenantEntity.CanAddUser() {
 		return nil, tenant.ErrMaxUsersReached()
 	}
 
-	// Verificar que no exista un usuario con el mismo email
+	// Verify no user exists with the same email
 	exists, err := s.userRepo.ExistsByEmail(ctx, req.Email, req.TenantID)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to check email existence", errx.TypeInternal)
@@ -58,44 +58,46 @@ func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest
 		return nil, user.ErrUserAlreadyExists()
 	}
 
-	// Determinar scopes
+	// Determine scopes
 	scopes, err := s.resolveScopes(req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validar scopes
+	// Validate scopes
 	if err := s.validateScopes(scopes); err != nil {
 		return nil, err
 	}
 
-	// Crear nuevo usuario
+	// Create new user
 	newUser := &user.User{
 		ID:            kernel.NewUserID(uuid.NewString()),
 		TenantID:      req.TenantID,
 		Email:         req.Email,
 		Name:          req.Name,
-		Status:        user.UserStatusPending, // Pendiente hasta completar onboarding
+		Status:        user.UserStatusPending, // Pending until onboarding is completed
 		Scopes:        scopes,
-		EmailVerified: false, // Se verificará después
+		EmailVerified: false, // Will be verified later
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
 
-	// Guardar usuario
+	// Save user
 	if err := s.userRepo.Save(ctx, *newUser); err != nil {
 		return nil, errx.Wrap(err, "failed to save user", errx.TypeInternal)
 	}
 
-	// Incrementar contador de usuarios del tenant
+	// Increment tenant user counter (best-effort — not transactional with user save)
 	if err := tenantEntity.AddUser(); err == nil {
-		s.tenantRepo.Save(ctx, *tenantEntity)
+		if err := s.tenantRepo.Save(ctx, *tenantEntity); err != nil {
+			_ = err // user created successfully, counter drift is non-fatal
+		}
 	}
 
 	return newUser, nil
 }
 
-// GetUserByID obtiene un usuario por ID
+// GetUserByID gets a user by ID
 func (s *UserService) GetUserByID(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) (*user.UserResponse, error) {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
@@ -107,7 +109,7 @@ func (s *UserService) GetUserByID(ctx context.Context, userID kernel.UserID, ten
 	}, nil
 }
 
-// GetUserByEmail obtiene un usuario por email
+// GetUserByEmail gets a user by email
 func (s *UserService) GetUserByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*user.UserResponse, error) {
 	userEntity, err := s.userRepo.FindByEmail(ctx, email, tenantID)
 	if err != nil {
@@ -119,7 +121,7 @@ func (s *UserService) GetUserByEmail(ctx context.Context, email string, tenantID
 	}, nil
 }
 
-// GetUsersByTenant obtiene todos los usuarios de un tenant
+// GetUsersByTenant gets all users for a tenant
 func (s *UserService) GetUsersByTenant(ctx context.Context, tenantID kernel.TenantID) (*user.UserListResponse, error) {
 	users, err := s.userRepo.FindByTenant(ctx, tenantID)
 	if err != nil {
@@ -139,14 +141,14 @@ func (s *UserService) GetUsersByTenant(ctx context.Context, tenantID kernel.Tena
 	}, nil
 }
 
-// UpdateUser actualiza un usuario
-func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req user.UpdateUserRequest, updaterID kernel.UserID) (*user.User, error) {
+// UpdateUser updates a user
+func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req user.UpdateUserRequest) (*user.User, error) {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, req.TenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
 	}
 
-	// Actualizar campos si se proporcionaron
+	// Update fields if provided
 	if req.Name != nil {
 		userEntity.Name = *req.Name
 	}
@@ -164,7 +166,7 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 		}
 	}
 
-	// Actualizar scopes si se proporcionaron
+	// Update scopes if provided
 	if req.Scopes != nil && len(req.Scopes) > 0 {
 		if err := s.validateScopes(req.Scopes); err != nil {
 			return nil, err
@@ -172,20 +174,9 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 		userEntity.SetScopes(req.Scopes)
 	}
 
-	// Aplicar scope template si se proporciona
-	if req.ScopeTemplate != nil && *req.ScopeTemplate != "" {
-		scopes := scopes.GetScopesByGroup(*req.ScopeTemplate)
-		if len(scopes) == 0 {
-			return nil, user.ErrInvalidScopeTemplate().
-				WithDetail("template", *req.ScopeTemplate).
-				WithDetail("available_templates", s.GetAvailableScopeTemplates())
-		}
-		userEntity.SetScopes(scopes)
-	}
-
 	userEntity.UpdatedAt = time.Now()
 
-	// Guardar cambios
+	// Save changes
 	if err := s.userRepo.Save(ctx, *userEntity); err != nil {
 		return nil, errx.Wrap(err, "failed to update user", errx.TypeInternal)
 	}
@@ -193,7 +184,7 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 	return userEntity, nil
 }
 
-// ActivateUser activa un usuario pendiente
+// ActivateUser activates a pending user
 func (s *UserService) ActivateUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
@@ -207,7 +198,7 @@ func (s *UserService) ActivateUser(ctx context.Context, userID kernel.UserID, te
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
-// SuspendUser suspende un usuario
+// SuspendUser suspends a user
 func (s *UserService) SuspendUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, reason string) error {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
@@ -221,24 +212,25 @@ func (s *UserService) SuspendUser(ctx context.Context, userID kernel.UserID, ten
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
-// DeleteUser elimina un usuario
+// DeleteUser deletes a user
 func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
-	// Verificar que el usuario existe
+	// Verify that the user exists
 	_, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
-	// Eliminar usuario
+	// Delete user
 	if err := s.userRepo.Delete(ctx, userID, tenantID); err != nil {
 		return errx.Wrap(err, "failed to delete user", errx.TypeInternal)
 	}
 
-	// Decrementar contador de usuarios del tenant
-	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
-	if err == nil {
+	// Decrement tenant user counter (best-effort — not transactional with user delete)
+	if tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID); err == nil {
 		tenantEntity.RemoveUser()
-		s.tenantRepo.Save(ctx, *tenantEntity)
+		if err := s.tenantRepo.Save(ctx, *tenantEntity); err != nil {
+			_ = err // user deleted successfully, counter drift is non-fatal
+		}
 	}
 
 	return nil
@@ -248,19 +240,19 @@ func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tena
 // Scope Management Methods
 // ============================================================================
 
-// AddScopesToUser agrega scopes a un usuario
+// AddScopesToUser adds scopes to a user
 func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopes []string) error {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
-	// Validar scopes
+	// Validate scopes
 	if err := s.validateScopes(scopes); err != nil {
 		return err
 	}
 
-	// Agregar scopes (evitando duplicados)
+	// Add scopes (avoiding duplicates)
 	for _, scope := range scopes {
 		if !userEntity.HasScope(scope) {
 			userEntity.AddScope(scope)
@@ -270,29 +262,32 @@ func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID,
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
-// RemoveScopesFromUser remueve scopes de un usuario
-func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopes []string) error {
+// RemoveScopesFromUser removes scopes from a user
+func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopeList []string) error {
+	if err := s.validateScopes(scopeList); err != nil {
+		return err
+	}
+
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
-	// Remover scopes
-	for _, scope := range scopes {
+	for _, scope := range scopeList {
 		userEntity.RemoveScope(scope)
 	}
 
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
-// SetUserScopes establece los scopes de un usuario (reemplaza los existentes)
+// SetUserScopes sets the scopes for a user (replaces existing ones)
 func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopes []string) error {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
-	// Validar scopes
+	// Validate scopes
 	if err := s.validateScopes(scopes); err != nil {
 		return err
 	}
@@ -301,32 +296,14 @@ func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, t
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
-// ApplyScopeTemplateToUser aplica una plantilla de scopes a un usuario
-func (s *UserService) ApplyScopeTemplateToUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, templateName string) error {
-	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
-	if err != nil {
-		return user.ErrUserNotFound()
-	}
-
-	scopes := scopes.GetScopesByGroup(templateName)
-	if len(scopes) == 0 {
-		return user.ErrInvalidScopeTemplate().
-			WithDetail("template", templateName).
-			WithDetail("available_templates", s.GetAvailableScopeTemplates())
-	}
-
-	userEntity.SetScopes(scopes)
-	return s.userRepo.Save(ctx, *userEntity)
-}
-
-// GetUserScopes obtiene los scopes de un usuario
+// GetUserScopes retrieves the scopes for a user
 func (s *UserService) GetUserScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) (*user.UserScopesResponse, error) {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
 	}
 
-	// Construir información detallada de scopes
+	// Build detailed scope information
 	scopeDetails := make([]user.ScopeDetail, 0, len(userEntity.Scopes))
 	for _, scope := range userEntity.Scopes {
 		scopeDetails = append(scopeDetails, user.ScopeDetail{
@@ -341,71 +318,16 @@ func (s *UserService) GetUserScopes(ctx context.Context, userID kernel.UserID, t
 		Scopes:       userEntity.Scopes,
 		ScopeDetails: scopeDetails,
 		TotalScopes:  len(userEntity.Scopes),
-		IsAdmin:      userEntity.IsAdmin(),
+
 	}, nil
 }
 
-// MakeUserAdmin convierte a un usuario en administrador
-func (s *UserService) MakeUserAdmin(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
-	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
-	if err != nil {
-		return user.ErrUserNotFound()
-	}
-
-	userEntity.MakeAdmin()
-	return s.userRepo.Save(ctx, *userEntity)
-}
-
-// RevokeUserAdmin revoca permisos de administrador
-func (s *UserService) RevokeUserAdmin(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
-	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
-	if err != nil {
-		return user.ErrUserNotFound()
-	}
-
-	userEntity.RevokeAdmin()
-	return s.userRepo.Save(ctx, *userEntity)
-}
-
-// GetAvailableScopeTemplates retorna las plantillas de scopes disponibles
-func (s *UserService) GetAvailableScopeTemplates() []string {
-	templates := make([]string, 0, len(scopes.ScopeGroups))
-	for template := range scopes.ScopeGroups {
-		templates = append(templates, template)
-	}
-	return templates
-}
-
-// GetScopeTemplateDetails obtiene los detalles de una plantilla
-func (s *UserService) GetScopeTemplateDetails(templateName string) (*user.ScopeTemplateResponse, error) {
-	scopesl := scopes.GetScopesByGroup(templateName)
-	if len(scopesl) == 0 {
-		return nil, user.ErrInvalidScopeTemplate().WithDetail("template", templateName)
-	}
-
-	scopeDetails := make([]user.ScopeDetail, 0, len(scopesl))
-	for _, scope := range scopesl {
-		scopeDetails = append(scopeDetails, user.ScopeDetail{
-			Name:        scope,
-			Description: scopes.GetScopeDescription(scope),
-			Category:    scopes.GetScopeCategory(scope),
-		})
-	}
-
-	return &user.ScopeTemplateResponse{
-		TemplateName: templateName,
-		Scopes:       scopesl,
-		ScopeDetails: scopeDetails,
-		TotalScopes:  len(scopesl),
-	}, nil
-}
-
-// GetAllAvailableScopes retorna todos los scopes disponibles del sistema
+// GetAllAvailableScopes returns all available scopes in the system
 func (s *UserService) GetAllAvailableScopes() *user.AvailableScopesResponse {
 	allScopes := scopes.GetAllScopes()
 	categories := make(map[string][]user.ScopeDetail)
 
-	// Agrupar por categoría
+	// Group by category
 	for _, scope := range allScopes {
 		category := scopes.GetScopeCategory(scope)
 		scopeDetail := user.ScopeDetail{
@@ -419,7 +341,6 @@ func (s *UserService) GetAllAvailableScopes() *user.AvailableScopesResponse {
 	return &user.AvailableScopesResponse{
 		TotalScopes: len(allScopes),
 		Categories:  categories,
-		Templates:   s.GetAvailableScopeTemplates(),
 	}
 }
 
@@ -427,37 +348,21 @@ func (s *UserService) GetAllAvailableScopes() *user.AvailableScopesResponse {
 // Private Helper Methods
 // ============================================================================
 
-// resolveScopes determina los scopes finales basándose en la request
+// resolveScopes determines the final scopes based on the request
 func (s *UserService) resolveScopes(req user.CreateUserRequest) ([]string, error) {
-	// Si se proporcionan scopes directamente, usarlos
 	if len(req.Scopes) > 0 {
 		return req.Scopes, nil
 	}
-
-	// Si se proporciona un template, expandirlo
-	if req.ScopeTemplate != nil && *req.ScopeTemplate != "" {
-		scopes := scopes.GetScopesByGroup(*req.ScopeTemplate)
-		if len(scopes) == 0 {
-			return nil, user.ErrInvalidScopeTemplate().
-				WithDetail("template", *req.ScopeTemplate).
-				WithDetail("available_templates", s.GetAvailableScopeTemplates())
-		}
-		return scopes, nil
-	}
-
-	// Default: usar template "viewer" o scopes básicos
-	defaultScopes := scopes.GetScopesByGroup("viewer")
-
-	return defaultScopes, nil
+	return []string{}, nil
 }
 
-// validateScopes valida que los scopes sean válidos
+// validateScopes validates that the scopes are valid
 func (s *UserService) validateScopes(scopesl []string) error {
 	if len(scopesl) == 0 {
 		return user.ErrInvalidScopes().WithDetail("reason", "at least one scope is required")
 	}
 
-	// Validar cada scope
+	// Validate each scope
 	invalidScopes := []string{}
 	for _, scope := range scopesl {
 		if !scopes.ValidateScope(scope) {

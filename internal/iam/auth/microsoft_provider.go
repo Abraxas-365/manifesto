@@ -19,7 +19,7 @@ const (
 	MicrosoftUserInfoURL = "https://graph.microsoft.com/v1.0/me"
 )
 
-// MicrosoftOAuthService implementación del servicio OAuth para Microsoft
+// MicrosoftOAuthService is the OAuth service implementation for Microsoft
 type MicrosoftOAuthService struct {
 	config       OAuthConfig
 	httpClient   *http.Client
@@ -29,7 +29,7 @@ type MicrosoftOAuthService struct {
 	userInfoURL  string
 }
 
-// NewMicrosoftOAuthService crea una nueva instancia del servicio Microsoft OAuth
+// NewMicrosoftOAuthServiceFromConfig creates a new Microsoft OAuth service instance
 func NewMicrosoftOAuthServiceFromConfig(cfg *config.OAuthProviderConfig, stateManager StateManager) *MicrosoftOAuthService {
 	return &MicrosoftOAuthService{
 		config: OAuthConfig{
@@ -46,12 +46,12 @@ func NewMicrosoftOAuthServiceFromConfig(cfg *config.OAuthProviderConfig, stateMa
 	}
 }
 
-// GetProvider retorna el proveedor OAuth
+// GetProvider returns the OAuth provider
 func (m *MicrosoftOAuthService) GetProvider() iam.OAuthProvider {
 	return iam.OAuthProviderMicrosoft
 }
 
-// GetAuthURL genera la URL de autorización de Microsoft
+// GetAuthURL generates the Microsoft authorization URL
 func (m *MicrosoftOAuthService) GetAuthURL(state string) string {
 	params := url.Values{
 		"client_id":     {m.config.ClientID},
@@ -65,12 +65,12 @@ func (m *MicrosoftOAuthService) GetAuthURL(state string) string {
 	return fmt.Sprintf("%s?%s", MicrosoftAuthURL, params.Encode())
 }
 
-// ValidateState valida el estado OAuth
+// ValidateState validates the OAuth state
 func (m *MicrosoftOAuthService) ValidateState(state string) bool {
 	return m.stateManager.ValidateState(state)
 }
 
-// ExchangeToken intercambia el código de autorización por tokens
+// ExchangeToken exchanges the authorization code for tokens
 func (m *MicrosoftOAuthService) ExchangeToken(ctx context.Context, code string) (*OAuthTokenResponse, error) {
 	data := url.Values{
 		"client_id":     {m.config.ClientID},
@@ -107,7 +107,7 @@ func (m *MicrosoftOAuthService) ExchangeToken(ctx context.Context, code string) 
 	return &tokenResp, nil
 }
 
-// GetUserInfo obtiene la información del usuario desde Microsoft
+// GetUserInfo retrieves user information from Microsoft
 func (m *MicrosoftOAuthService) GetUserInfo(ctx context.Context, accessToken string) (*OAuthUserInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", MicrosoftUserInfoURL, nil)
 	if err != nil {
@@ -140,7 +140,7 @@ func (m *MicrosoftOAuthService) GetUserInfo(ctx context.Context, accessToken str
 		return nil, errx.Wrap(err, "failed to decode user info", errx.TypeExternal)
 	}
 
-	// Microsoft puede usar mail o userPrincipalName como email
+	// Microsoft may use mail or userPrincipalName as email
 	email := msUser.Mail
 	if email == "" {
 		email = msUser.UserPrincipalName
@@ -150,7 +150,7 @@ func (m *MicrosoftOAuthService) GetUserInfo(ctx context.Context, accessToken str
 		ID:            msUser.ID,
 		Email:         email,
 		Name:          msUser.DisplayName,
-		Picture:       "",   // Microsoft Graph requiere endpoint separado para foto
-		EmailVerified: true, // Asumimos verificado si viene de Microsoft
+		Picture:       "",   // Microsoft Graph requires a separate endpoint for photos
+		EmailVerified: true, // Assumed verified if coming from Microsoft
 	}, nil
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
-	"github.com/Abraxas-365/manifesto/internal/iam/scopes"
+
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -29,6 +29,7 @@ type AuthHandlers struct {
 	stateManager   StateManager
 	invitationRepo invitation.InvitationRepository
 	auditService   AuditService
+	scopeResolver  ScopeResolver
 	config         *config.Config
 }
 
@@ -43,6 +44,7 @@ func NewAuthHandlers(
 	stateManager StateManager,
 	invitationRepo invitation.InvitationRepository,
 	auditService AuditService,
+	scopeResolver ScopeResolver,
 	config *config.Config,
 ) *AuthHandlers {
 	return &AuthHandlers{
@@ -55,23 +57,24 @@ func NewAuthHandlers(
 		stateManager:   stateManager,
 		invitationRepo: invitationRepo,
 		auditService:   auditService,
+		scopeResolver:  scopeResolver,
 		config:         config,
 	}
 }
 
-// LoginRequest estructura para iniciar login OAuth
+// LoginRequest is the request to initiate OAuth login
 type LoginRequest struct {
 	Provider        iam.OAuthProvider `json:"provider"`
 	InvitationToken string            `json:"invitation_token,omitempty"`
 }
 
-// LoginResponse respuesta del endpoint de login
+// LoginResponse is the login endpoint response
 type LoginResponse struct {
 	AuthURL string `json:"auth_url"`
 	State   string `json:"state"`
 }
 
-// TokenResponse respuesta con tokens de autenticación
+// TokenResponse is the response with authentication tokens
 type TokenResponse struct {
 	AccessToken  string                  `json:"access_token"`
 	RefreshToken string                  `json:"refresh_token"`
@@ -81,7 +84,7 @@ type TokenResponse struct {
 	Tenant       tenant.TenantDetailsDTO `json:"tenant"`
 }
 
-// RefreshTokenRequest estructura para renovar token
+// RefreshTokenRequest is the request to refresh a token
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
@@ -97,7 +100,7 @@ func (ah *AuthHandlers) RegisterRoutes(router fiber.Router) {
 	auth.Get("/me", ah.GetCurrentUser)
 }
 
-// InitiateLogin inicia el proceso de login OAuth
+// InitiateLogin starts the OAuth login process
 func (ah *AuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 	var req LoginRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -106,7 +109,7 @@ func (ah *AuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 		})
 	}
 
-	// Normalizar el proveedor a mayúsculas y verificar que esté soportado
+	// Normalize the provider to uppercase and verify it is supported
 	normalizedProvider := iam.OAuthProvider(strings.ToUpper(string(req.Provider)))
 	oauthService, exists := ah.oauthServices[normalizedProvider]
 	if !exists {
@@ -115,10 +118,10 @@ func (ah *AuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 		})
 	}
 
-	// Generar estado OAuth
+	// Generate OAuth state
 	state := ah.stateManager.GenerateState()
 
-	// Almacenar información del estado
+	// Store state information
 	stateData := map[string]interface{}{
 		"provider": normalizedProvider,
 	}
@@ -132,7 +135,7 @@ func (ah *AuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 		})
 	}
 
-	// Generar URL de autorización
+	// Generate authorization URL
 	authURL := oauthService.GetAuthURL(state)
 
 	return c.JSON(LoginResponse{
@@ -141,11 +144,11 @@ func (ah *AuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 	})
 }
 
-// HandleCallback maneja el callback OAuth
+// HandleCallback handles the OAuth callback
 func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 	providerStr := c.Params("provider")
 
-	// Convertir string a OAuthProvider
+	// Convert string to OAuthProvider
 	var provider iam.OAuthProvider
 	switch providerStr {
 	case "google":
@@ -158,7 +161,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Verificar que el servicio OAuth exista
+	// Verify the OAuth service exists
 	oauthService, exists := ah.oauthServices[provider]
 	if !exists {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -166,12 +169,12 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Obtener parámetros del callback
+	// Get callback parameters
 	code := c.Query("code")
 	state := c.Query("state")
 	errorParam := c.Query("error")
 
-	// Verificar errores OAuth
+	// Check for OAuth errors
 	if errorParam != "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": ErrOAuthCallbackError().WithDetail("error", errorParam).Error(),
@@ -184,7 +187,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validar estado
+	// Validate state
 	stateData, err := ah.stateManager.GetStateData(c.Context(), state)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -192,7 +195,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Intercambiar código por token
+	// Exchange code for token
 	tokenResp, err := oauthService.ExchangeToken(c.Context(), code)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -200,7 +203,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Obtener información del usuario
+	// Get user information
 	userInfo, err := oauthService.GetUserInfo(c.Context(), tokenResp.AccessToken)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -216,11 +219,12 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Generar tokens de nuestra aplicación
+	// Generate application tokens
+	effectiveScopes := ah.resolveScopes(c.Context(), userEntity)
 	accessToken, err := ah.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
 		"email":  userEntity.Email,
 		"name":   userEntity.Name,
-		"scopes": userEntity.Scopes,
+		"scopes": effectiveScopes,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -235,7 +239,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Guardar refresh token en base de datos
+	// Save refresh token to database
 	refreshToken := RefreshToken{
 		ID:        generateID(),
 		Token:     refreshTokenStr,
@@ -252,7 +256,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Crear sesión de usuario
+	// Create user session
 	session := UserSession{
 		ID:           generateID(),
 		UserID:       userEntity.ID,
@@ -266,13 +270,13 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 	}
 
 	if err := ah.sessionRepo.SaveSession(c.Context(), session); err != nil {
-		// Log error pero no fallar la autenticación
+		// Log error but don't fail authentication
 	}
 
-	// Actualizar último login del usuario
+	// Update user's last login
 	userEntity.UpdateLastLogin()
 	if err := ah.userRepo.Save(c.Context(), *userEntity); err != nil {
-		// Log error pero no fallar
+		// Log error but don't fail
 	}
 
 	// Audit: successful OAuth login
@@ -313,7 +317,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 	return c.JSON(response)
 }
 
-// RefreshToken renueva un access token usando refresh token
+// RefreshToken renews an access token using a refresh token
 func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 	var req RefreshTokenRequest
 
@@ -323,7 +327,7 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
-	// Alternativamente, obtener refresh token de cookie
+	// Alternatively, get refresh token from cookie
 	if req.RefreshToken == "" {
 		req.RefreshToken = c.Cookies("refresh_token")
 	}
@@ -334,7 +338,7 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
-	// Buscar refresh token en base de datos
+	// Find refresh token in database
 	refreshToken, err := ah.tokenRepo.FindRefreshToken(c.Context(), req.RefreshToken)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -342,14 +346,14 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
-	// Verificar validez del refresh token
+	// Verify refresh token validity
 	if !refreshToken.IsValid() {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": ErrExpiredRefreshToken().Error(),
 		})
 	}
 
-	// Buscar usuario y tenant
+	// Find user and tenant
 	userEntity, err := ah.userRepo.FindByID(c.Context(), refreshToken.UserID, refreshToken.TenantID)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -364,25 +368,26 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
-	// Verificar que el usuario pueda hacer login
+	// Verify the user can log in
 	if !userEntity.CanLogin() {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "User cannot login",
 		})
 	}
 
-	// Verificar que el tenant esté activo
+	// Verify the tenant is active
 	if !tenantEntity.IsActive() {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Tenant is not active",
 		})
 	}
 
-	// Generar nuevo access token
+	// Generate new access token
+	effectiveScopes := ah.resolveScopes(c.Context(), userEntity)
 	accessToken, err := ah.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
 		"email":  userEntity.Email,
 		"name":   userEntity.Name,
-		"scopes": userEntity.Scopes,
+		"scopes": effectiveScopes,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -395,27 +400,29 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 
 	// Update access token cookie
 	c.Cookie(&fiber.Cookie{
-		Name:     "access_token",
+		Name:     ah.config.Auth.Cookie.AccessTokenName,
 		Value:    accessToken,
-		Expires:  time.Now().Add(15 * time.Minute),
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "Lax",
+		Expires:  time.Now().Add(ah.config.Auth.JWT.AccessTokenTTL),
+		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
+		Secure:   ah.config.Auth.Cookie.Secure,
+		SameSite: ah.config.Auth.Cookie.SameSite,
+		Domain:   ah.config.Auth.Cookie.Domain,
+		Path:     ah.config.Auth.Cookie.Path,
 	})
 
 	return c.JSON(fiber.Map{
 		"access_token": accessToken,
 		"token_type":   "Bearer",
-		"expires_in":   int(15 * time.Minute / time.Second),
+		"expires_in":   int(ah.config.Auth.JWT.AccessTokenTTL / time.Second),
 	})
 }
 
-// Logout invalida tokens y sesiones del usuario
+// Logout invalidates user tokens and sessions
 func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
-	// Intentar obtener contexto de auth del middleware
+	// Try to get auth context from middleware
 	authContext, ok := GetAuthContext(c)
 	if !ok {
-		// Fallback: intentar decodificar el token
+		// Fallback: try to decode the token
 		var token string
 		authHeader := c.Get("Authorization")
 		if authHeader != "" {
@@ -425,7 +432,7 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 			}
 		}
 		if token == "" {
-			token = c.Cookies("access_token")
+			token = c.Cookies(ah.config.Auth.Cookie.AccessTokenName)
 		}
 		if token == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -467,17 +474,25 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 
 	// Clear cookies
 	c.Cookie(&fiber.Cookie{
-		Name:     "access_token",
+		Name:     ah.config.Auth.Cookie.AccessTokenName,
 		Value:    "",
 		Expires:  time.Now().Add(-time.Hour),
-		HTTPOnly: true,
+		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
+		Secure:   ah.config.Auth.Cookie.Secure,
+		SameSite: ah.config.Auth.Cookie.SameSite,
+		Domain:   ah.config.Auth.Cookie.Domain,
+		Path:     ah.config.Auth.Cookie.Path,
 	})
 
 	c.Cookie(&fiber.Cookie{
-		Name:     "refresh_token",
+		Name:     ah.config.Auth.Cookie.RefreshTokenName,
 		Value:    "",
 		Expires:  time.Now().Add(-time.Hour),
-		HTTPOnly: true,
+		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
+		Secure:   ah.config.Auth.Cookie.Secure,
+		SameSite: ah.config.Auth.Cookie.SameSite,
+		Domain:   ah.config.Auth.Cookie.Domain,
+		Path:     ah.config.Auth.Cookie.Path,
 	})
 
 	return c.JSON(fiber.Map{
@@ -485,11 +500,11 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 	})
 }
 
-// GetCurrentUser obtiene la información del usuario autenticado
+// GetCurrentUser retrieves the authenticated user's information
 func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
 	if !ok {
-		// Fallback: intentar decodificar el token
+		// Fallback: try to decode the token
 		var token string
 		authHeader := c.Get("Authorization")
 		if authHeader != "" {
@@ -499,7 +514,7 @@ func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 			}
 		}
 		if token == "" {
-			token = c.Cookies("access_token")
+			token = c.Cookies(ah.config.Auth.Cookie.AccessTokenName)
 		}
 		if token == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -526,7 +541,7 @@ func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	// Buscar usuario completo
+	// Find complete user
 	userEntity, err := ah.userRepo.FindByID(c.Context(), *authContext.UserID, authContext.TenantID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -534,7 +549,7 @@ func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 		})
 	}
 
-	// Buscar tenant
+	// Find tenant
 	tenantEntity, err := ah.tenantRepo.FindByID(c.Context(), authContext.TenantID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -555,12 +570,12 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 	var invitationScopes []string
 	var err error
 
-	// Verificar si hay un token de invitación
+	// Check if there's an invitation token
 	if token, ok := stateData["invitation_token"].(string); ok && token != "" {
 		invitationToken = token
 	}
 
-	// Si hay token de invitación, validarlo y obtener el tenant
+	// If there's an invitation token, validate it and get the tenant
 	if invitationToken != "" {
 		inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
 		if err != nil {
@@ -603,7 +618,7 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 		return existingUser, tenantEntity, nil
 	}
 
-	// Verificar si el tenant puede agregar más usuarios
+	// Check if the tenant can add more users
 	if !tenantEntity.CanAddUser() {
 		return nil, nil, tenant.ErrMaxUsersReached()
 	}
@@ -613,7 +628,7 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 	if len(invitationScopes) > 0 {
 		userScopes = invitationScopes
 	} else {
-		userScopes = scopes.GetScopesByGroup("viewer")
+		userScopes = []string{}
 	}
 
 	// Create new user with OAuth (OTPEnabled = false by default)
@@ -663,6 +678,10 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 	}
 
 	return newUser, tenantEntity, nil
+}
+
+func (ah *AuthHandlers) resolveScopes(ctx context.Context, userEntity *user.User) []string {
+	return ResolveScopes(ctx, ah.scopeResolver, userEntity.ID, userEntity.TenantID, userEntity.Scopes)
 }
 
 // Helper functions

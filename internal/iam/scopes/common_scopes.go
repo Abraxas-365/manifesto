@@ -9,7 +9,7 @@ const (
 	ScopeAll = "*"
 
 	// Admin scopes
-	ScopeAdminAll   = "admin:*"
+
 	ScopeAdminRead  = "admin:read"
 	ScopeAdminWrite = "admin:write"
 
@@ -27,6 +27,12 @@ const (
 	ScopeRolesDelete = "roles:delete"
 	ScopeRolesAssign = "roles:assign"
 
+	// Scope management scopes
+	ScopeScopesAll    = "scopes:*"
+	ScopeScopesRead   = "scopes:read"
+	ScopeScopesWrite  = "scopes:write"
+	ScopeScopesAssign = "scopes:assign"
+
 	// Tenant management scopes
 	ScopeTenantsAll    = "tenants:*"
 	ScopeTenantsRead   = "tenants:read"
@@ -40,6 +46,13 @@ const (
 	ScopeAPIKeysWrite  = "api_keys:write"
 	ScopeAPIKeysDelete = "api_keys:delete"
 	ScopeAPIKeysRevoke = "api_keys:revoke"
+
+	// Invitation scopes
+	ScopeInvitationsAll    = "invitations:*"
+	ScopeInvitationsRead   = "invitations:read"
+	ScopeInvitationsWrite  = "invitations:write"
+	ScopeInvitationsDelete = "invitations:delete"
+	ScopeInvitationsRevoke = "invitations:revoke"
 
 	// Settings scopes
 	ScopeSettingsAll   = "settings:*"
@@ -81,7 +94,7 @@ const (
 var CommonScopeCategories = map[string][]string{
 	"Administration": {
 		ScopeAll,
-		ScopeAdminAll,
+
 		ScopeAdminRead,
 		ScopeAdminWrite,
 	},
@@ -99,6 +112,12 @@ var CommonScopeCategories = map[string][]string{
 		ScopeRolesDelete,
 		ScopeRolesAssign,
 	},
+	"Scopes": {
+		ScopeScopesAll,
+		ScopeScopesRead,
+		ScopeScopesWrite,
+		ScopeScopesAssign,
+	},
 	"Tenants": {
 		ScopeTenantsAll,
 		ScopeTenantsRead,
@@ -112,6 +131,13 @@ var CommonScopeCategories = map[string][]string{
 		ScopeAPIKeysWrite,
 		ScopeAPIKeysDelete,
 		ScopeAPIKeysRevoke,
+	},
+	"Invitations": {
+		ScopeInvitationsAll,
+		ScopeInvitationsRead,
+		ScopeInvitationsWrite,
+		ScopeInvitationsDelete,
+		ScopeInvitationsRevoke,
 	},
 	"Settings": {
 		ScopeSettingsAll,
@@ -156,7 +182,7 @@ var CommonScopeDescriptions = map[string]string{
 	ScopeAll: "Full access to all system resources",
 
 	// Admin
-	ScopeAdminAll:   "Full administrative access",
+
 	ScopeAdminRead:  "View administrative settings",
 	ScopeAdminWrite: "Modify administrative settings",
 
@@ -174,6 +200,12 @@ var CommonScopeDescriptions = map[string]string{
 	ScopeRolesDelete: "Delete roles",
 	ScopeRolesAssign: "Assign roles to users",
 
+	// Scopes
+	ScopeScopesAll:    "Full access to scope management",
+	ScopeScopesRead:   "View available scopes and user scopes",
+	ScopeScopesWrite:  "Set and modify user scopes",
+	ScopeScopesAssign: "Add or remove scopes from users",
+
 	// Tenants
 	ScopeTenantsAll:    "Full access to tenant management",
 	ScopeTenantsRead:   "View tenants",
@@ -187,6 +219,13 @@ var CommonScopeDescriptions = map[string]string{
 	ScopeAPIKeysWrite:  "Create and edit API keys",
 	ScopeAPIKeysDelete: "Delete API keys",
 	ScopeAPIKeysRevoke: "Revoke API keys",
+
+	// Invitations
+	ScopeInvitationsAll:    "Full access to invitation management",
+	ScopeInvitationsRead:   "View invitations",
+	ScopeInvitationsWrite:  "Create invitations",
+	ScopeInvitationsDelete: "Delete invitations",
+	ScopeInvitationsRevoke: "Revoke invitations",
 
 	// Settings
 	ScopeSettingsAll:   "Full access to settings",
@@ -224,59 +263,4 @@ var CommonScopeDescriptions = map[string]string{
 	ScopeTemplatesDelete: "Delete templates",
 }
 
-// CommonScopeGroups defines common role groupings
-var CommonScopeGroups = map[string][]string{
-	"super_admin": {
-		ScopeAll,
-	},
-	"platform_admin": {
-		ScopeAdminAll,
-		ScopeUsersAll,
-		ScopeRolesAll,
-		ScopeTenantsAll,
-		ScopeSettingsAll,
-		ScopeAuditRead,
-		ScopeAPIKeysAll,
-	},
-	"tenant_admin": {
-		ScopeUsersAll,
-		ScopeRolesAll,
-		ScopeSettingsAll,
-		ScopeAPIKeysAll,
-		ScopeTenantsRead,
-		ScopeTenantsConfig,
-	},
-	"user_manager": {
-		ScopeUsersAll,
-		ScopeRolesRead,
-		ScopeRolesAssign,
-		ScopeUsersInvite,
-	},
-	"analyst": {
-		ScopeReportsAll,
-		ScopeAnalyticsDashboard,
-		ScopeAuditRead,
-	},
-	"api_admin": {
-		ScopeAPIKeysAll,
-		ScopeIntegrationsAll,
-	},
-	"settings_admin": {
-		ScopeSettingsAll,
-		ScopeTenantsConfig,
-		ScopeTemplatesAll,
-		ScopeNotificationsAll,
-	},
-	"auditor": {
-		ScopeAuditRead,
-		ScopeUsersRead,
-		ScopeRolesRead,
-		ScopeTenantsRead,
-	},
-	"viewer": {
-		ScopeUsersRead,
-		ScopeRolesRead,
-		ScopeTenantsRead,
-		ScopeReportsView,
-	},
-}
+

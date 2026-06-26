@@ -11,13 +11,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisStateManager implementación en Redis del StateManager
+// RedisStateManager is the Redis implementation of StateManager
 type RedisStateManager struct {
 	client *redis.Client
 	ttl    time.Duration
 }
 
-// NewRedisStateManager crea un nuevo state manager con Redis
+// NewRedisStateManager creates a new Redis-backed state manager
 func NewRedisStateManager(client *redis.Client, ttl time.Duration) auth.StateManager {
 	return &RedisStateManager{
 		client: client,
@@ -25,12 +25,12 @@ func NewRedisStateManager(client *redis.Client, ttl time.Duration) auth.StateMan
 	}
 }
 
-// GenerateState genera un nuevo estado OAuth
+// GenerateState generates a new OAuth state
 func (sm *RedisStateManager) GenerateState() string {
 	return uuid.NewString()
 }
 
-// StoreState almacena un estado con sus datos asociados
+// StoreState stores a state with its associated data
 func (sm *RedisStateManager) StoreState(ctx context.Context, state string, data map[string]any) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -46,7 +46,7 @@ func (sm *RedisStateManager) StoreState(ctx context.Context, state string, data 
 	return nil
 }
 
-// ValidateState valida si un estado es válido
+// ValidateState checks if a state is valid
 func (sm *RedisStateManager) ValidateState(state string) bool {
 	ctx := context.Background()
 	key := fmt.Sprintf("oauth_state:%s", state)
@@ -59,11 +59,11 @@ func (sm *RedisStateManager) ValidateState(state string) bool {
 	return exists == 1
 }
 
-// GetStateData obtiene los datos asociados a un estado
+// GetStateData retrieves the data associated with a state
 func (sm *RedisStateManager) GetStateData(ctx context.Context, state string) (map[string]any, error) {
 	key := fmt.Sprintf("oauth_state:%s", state)
 
-	// Obtener y eliminar el estado (one-time use)
+	// Get and delete the state (one-time use)
 	jsonData, err := sm.client.GetDel(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {

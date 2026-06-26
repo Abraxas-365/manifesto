@@ -11,12 +11,12 @@ import (
 	"github.com/lib/pq"
 )
 
-// PostgresInvitationRepository implementación de PostgreSQL para InvitationRepository
+// PostgresInvitationRepository is the PostgreSQL implementation of InvitationRepository
 type PostgresInvitationRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresInvitationRepository crea una nueva instancia del repositorio de invitaciones
+// NewPostgresInvitationRepository creates a new invitation repository instance
 func NewPostgresInvitationRepository(db *sqlx.DB) invitation.InvitationRepository {
 	return &PostgresInvitationRepository{
 		db: db,
@@ -31,7 +31,7 @@ func (r *PostgresInvitationRepository) getExecutor(ctx context.Context) sqlx.Ext
 	return r.db
 }
 
-// FindByID busca una invitación por ID
+// FindByID finds an invitation by ID
 func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) (*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
@@ -55,7 +55,7 @@ func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) 
 	return &inv, nil
 }
 
-// FindByToken busca una invitación por token
+// FindByToken finds an invitation by token
 func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token string) (*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
@@ -78,7 +78,7 @@ func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token st
 	return &inv, nil
 }
 
-// FindByEmail busca invitaciones por email
+// FindByEmail finds invitations by email
 func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email string, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
@@ -97,7 +97,7 @@ func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email st
 			WithDetail("email", email)
 	}
 
-	// Convertir a slice de punteros
+	// Convert to slice of pointers
 	result := make([]*invitation.Invitation, len(invitations))
 	for i := range invitations {
 		result[i] = &invitations[i]
@@ -106,7 +106,7 @@ func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email st
 	return result, nil
 }
 
-// FindPendingByEmail busca invitaciones pendientes para un email en un tenant
+// FindPendingByEmail finds pending invitations for an email in a tenant
 func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
@@ -132,7 +132,7 @@ func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, e
 	return &inv, nil
 }
 
-// FindByTenant busca todas las invitaciones de un tenant
+// FindByTenant finds all invitations for a tenant
 func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
@@ -151,7 +151,7 @@ func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantI
 			WithDetail("tenant_id", tenantID.String())
 	}
 
-	// Convertir a slice de punteros
+	// Convert to slice of pointers
 	result := make([]*invitation.Invitation, len(invitations))
 	for i := range invitations {
 		result[i] = &invitations[i]
@@ -160,7 +160,7 @@ func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantI
 	return result, nil
 }
 
-// FindPendingByTenant busca invitaciones pendientes de un tenant
+// FindPendingByTenant finds pending invitations for a tenant
 func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
@@ -179,7 +179,7 @@ func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, 
 			WithDetail("tenant_id", tenantID.String())
 	}
 
-	// Convertir a slice de punteros
+	// Convert to slice of pointers
 	result := make([]*invitation.Invitation, len(invitations))
 	for i := range invitations {
 		result[i] = &invitations[i]
@@ -188,7 +188,7 @@ func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, 
 	return result, nil
 }
 
-// FindExpired busca invitaciones expiradas
+// FindExpired finds expired invitations
 func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
@@ -205,7 +205,7 @@ func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invi
 		return nil, errx.Wrap(err, "failed to find expired invitations", errx.TypeInternal)
 	}
 
-	// Convertir a slice de punteros
+	// Convert to slice of pointers
 	result := make([]*invitation.Invitation, len(invitations))
 	for i := range invitations {
 		result[i] = &invitations[i]
@@ -214,9 +214,9 @@ func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invi
 	return result, nil
 }
 
-// Save guarda o actualiza una invitación
+// Save saves or updates an invitation
 func (r *PostgresInvitationRepository) Save(ctx context.Context, inv invitation.Invitation) error {
-	// Verificar si la invitación ya existe
+	// Check if the invitation already exists
 	exists, err := r.invitationExists(ctx, inv.ID)
 	if err != nil {
 		return errx.Wrap(err, "failed to check invitation existence", errx.TypeInternal)
@@ -228,7 +228,7 @@ func (r *PostgresInvitationRepository) Save(ctx context.Context, inv invitation.
 	return r.create(ctx, inv)
 }
 
-// create crea una nueva invitación
+// create creates a new invitation
 func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitation.Invitation) error {
 	executor := r.getExecutor(ctx)
 
@@ -256,7 +256,7 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 	)
 
 	if err != nil {
-		// Verificar violación de constraint único
+		// Check for unique constraint violation
 		if pqErr, ok := err.(*pq.Error); ok {
 			if pqErr.Code == "23505" {
 				return invitation.ErrInvitationAlreadyExists().
@@ -270,7 +270,7 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 	return nil
 }
 
-// update actualiza una invitación existente
+// update updates an existing invitation
 func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitation.Invitation) error {
 	executor := r.getExecutor(ctx)
 
@@ -313,7 +313,7 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 	return nil
 }
 
-// Delete elimina una invitación
+// Delete deletes an invitation
 func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) error {
 	executor := r.getExecutor(ctx)
 
@@ -337,7 +337,7 @@ func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) er
 	return nil
 }
 
-// ExistsPendingForEmail verifica si existe una invitación pendiente para un email
+// ExistsPendingForEmail checks if a pending invitation exists for an email
 func (r *PostgresInvitationRepository) ExistsPendingForEmail(ctx context.Context, email string, tenantID kernel.TenantID) (bool, error) {
 	executor := r.getExecutor(ctx)
 
@@ -357,7 +357,7 @@ func (r *PostgresInvitationRepository) ExistsPendingForEmail(ctx context.Context
 	return exists, nil
 }
 
-// invitationExists verifica si una invitación existe por ID
+// invitationExists checks if an invitation exists by ID
 func (r *PostgresInvitationRepository) invitationExists(ctx context.Context, id string) (bool, error) {
 	executor := r.getExecutor(ctx)
 

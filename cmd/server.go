@@ -136,10 +136,19 @@ func setupMiddleware(app *fiber.App, cfg *config.Config) {
 func registerRoutes(app *fiber.App, container *Container) {
 	logx.Info("📝 Registering routes...")
 
-	// Add your module routes here
-	// Example:
-	// api := app.Group("/api/v1")
-	// myModule.RegisterRoutes(api)
+	api := app.Group("/api/v1")
+
+	// Auth routes (public)
+	container.IAM.OAuthHandlers.RegisterRoutes(api)
+	container.IAM.PasswordlessHandlers.RegisterRoutes(api)
+
+	// Protected API routes
+	container.IAM.APIKeyHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.InvitationHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.RoleHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.ScopeHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.UserHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.TenantHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
 
 	logx.Info("✅ All routes registered")
 }

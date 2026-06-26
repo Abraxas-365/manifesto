@@ -13,12 +13,12 @@ import (
 	"github.com/lib/pq"
 )
 
-// PostgresUserRepository implementación de PostgreSQL para UserRepository
+// PostgresUserRepository is the PostgreSQL implementation of UserRepository
 type PostgresUserRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresUserRepository crea una nueva instancia del repositorio de usuarios
+// NewPostgresUserRepository creates a new instance of the user repository
 func NewPostgresUserRepository(db *sqlx.DB) user.UserRepository {
 	return &PostgresUserRepository{
 		db: db,
@@ -93,7 +93,7 @@ func fromDomain(u *user.User) *userDB {
 	return db
 }
 
-// FindByID busca un usuario por ID y tenant
+// FindByID finds a user by ID and tenant
 func (r *PostgresUserRepository) FindByID(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) (*user.User, error) {
 	query := `
 		SELECT
@@ -117,7 +117,7 @@ func (r *PostgresUserRepository) FindByID(ctx context.Context, id kernel.UserID,
 	return dbUser.toDomain()
 }
 
-// FindByEmail busca un usuario por email y tenant
+// FindByEmail finds a user by email and tenant
 func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*user.User, error) {
 	query := `
 		SELECT
@@ -172,7 +172,7 @@ func (r *PostgresUserRepository) FindByEmailAcrossTenants(ctx context.Context, e
 	return result, nil
 }
 
-// FindByTenant busca todos los usuarios de un tenant
+// FindByTenant finds all users for a tenant
 func (r *PostgresUserRepository) FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*user.User, error) {
 	query := `
 		SELECT
@@ -203,7 +203,7 @@ func (r *PostgresUserRepository) FindByTenant(ctx context.Context, tenantID kern
 	return result, nil
 }
 
-// Save guarda o actualiza un usuario
+// Save saves or updates a user
 func (r *PostgresUserRepository) Save(ctx context.Context, u user.User) error {
 	exists, err := r.userExists(ctx, u.ID, u.TenantID)
 	if err != nil {
@@ -216,7 +216,7 @@ func (r *PostgresUserRepository) Save(ctx context.Context, u user.User) error {
 	return r.create(ctx, u)
 }
 
-// create crea un nuevo usuario
+// create creates a new user
 func (r *PostgresUserRepository) create(ctx context.Context, u user.User) error {
 	query := `
 		INSERT INTO users (
@@ -260,7 +260,7 @@ func (r *PostgresUserRepository) create(ctx context.Context, u user.User) error 
 	return nil
 }
 
-// update actualiza un usuario existente
+// update updates an existing user
 func (r *PostgresUserRepository) update(ctx context.Context, u user.User) error {
 	query := `
 		UPDATE users SET
@@ -317,7 +317,7 @@ func (r *PostgresUserRepository) update(ctx context.Context, u user.User) error 
 	return nil
 }
 
-// Delete elimina un usuario
+// Delete deletes a user
 func (r *PostgresUserRepository) Delete(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) error {
 	query := `DELETE FROM users WHERE id = $1 AND tenant_id = $2`
 
@@ -340,7 +340,7 @@ func (r *PostgresUserRepository) Delete(ctx context.Context, id kernel.UserID, t
 	return nil
 }
 
-// ExistsByEmail verifica si existe un usuario con el email dado en el tenant
+// ExistsByEmail checks if a user with the given email exists in the tenant
 func (r *PostgresUserRepository) ExistsByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (bool, error) {
 	query := `SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND tenant_id = $2)`
 
@@ -355,7 +355,7 @@ func (r *PostgresUserRepository) ExistsByEmail(ctx context.Context, email string
 	return exists, nil
 }
 
-// userExists verifica si un usuario existe por ID y tenant
+// userExists checks if a user exists by ID and tenant
 func (r *PostgresUserRepository) userExists(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) (bool, error) {
 	query := `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND tenant_id = $2)`
 
@@ -370,79 +370,4 @@ func (r *PostgresUserRepository) userExists(ctx context.Context, id kernel.UserI
 	return exists, nil
 }
 
-// FindByStatus busca usuarios por estado
-func (r *PostgresUserRepository) FindByStatus(ctx context.Context, status user.UserStatus, tenantID kernel.TenantID) ([]*user.User, error) {
-	query := `
-		SELECT
-			id, tenant_id, email, name, picture, status, scopes,
-			oauth_provider, oauth_provider_id, email_verified, otp_enabled,
-			last_login_at, created_at, updated_at
-		FROM users
-		WHERE status = $1 AND tenant_id = $2
-		ORDER BY name ASC`
 
-	var dbUsers []userDB
-	err := r.db.SelectContext(ctx, &dbUsers, query, status, tenantID.String())
-	if err != nil {
-		return nil, errx.Wrap(err, "failed to find users by status", errx.TypeInternal).
-			WithDetail("status", string(status)).
-			WithDetail("tenant_id", tenantID.String())
-	}
-
-	result := make([]*user.User, len(dbUsers))
-	for i := range dbUsers {
-		domainUser, err := dbUsers[i].toDomain()
-		if err != nil {
-			return nil, err
-		}
-		result[i] = domainUser
-	}
-
-	return result, nil
-}
-
-// FindActiveUsers busca usuarios activos
-func (r *PostgresUserRepository) FindActiveUsers(ctx context.Context, tenantID kernel.TenantID) ([]*user.User, error) {
-	return r.FindByStatus(ctx, user.UserStatusActive, tenantID)
-}
-
-// CountByTenant cuenta los usuarios de un tenant
-func (r *PostgresUserRepository) CountByTenant(ctx context.Context, tenantID kernel.TenantID) (int, error) {
-	query := `SELECT COUNT(*) FROM users WHERE tenant_id = $1`
-
-	var count int
-	err := r.db.GetContext(ctx, &count, query, tenantID.String())
-	if err != nil {
-		return 0, errx.Wrap(err, "failed to count users by tenant", errx.TypeInternal).
-			WithDetail("tenant_id", tenantID.String())
-	}
-
-	return count, nil
-}
-
-// FindByOAuthProvider busca un usuario por proveedor OAuth y ID
-func (r *PostgresUserRepository) FindByOAuthProvider(ctx context.Context, provider string, providerID string, tenantID kernel.TenantID) (*user.User, error) {
-	query := `
-		SELECT
-			id, tenant_id, email, name, picture, status, scopes,
-			oauth_provider, oauth_provider_id, email_verified, otp_enabled,
-			last_login_at, created_at, updated_at
-		FROM users
-		WHERE oauth_provider = $1 AND oauth_provider_id = $2 AND tenant_id = $3`
-
-	var dbUser userDB
-	err := r.db.GetContext(ctx, &dbUser, query, provider, providerID, tenantID.String())
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, user.ErrUserNotFound().
-				WithDetail("oauth_provider", provider).
-				WithDetail("oauth_provider_id", providerID)
-		}
-		return nil, errx.Wrap(err, "failed to find user by oauth provider", errx.TypeInternal).
-			WithDetail("oauth_provider", provider).
-			WithDetail("oauth_provider_id", providerID).
-			WithDetail("tenant_id", tenantID.String())
-	}
-
-	return dbUser.toDomain()
-}

@@ -8,13 +8,13 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/errx"
 )
 
-// Config configuración completa del módulo de autenticación
+// Config holds the full authentication module configuration
 type Config struct {
 	JWT   JWTConfig    `json:"jwt" yaml:"jwt"`
 	OAuth OAuthConfigs `json:"oauth" yaml:"oauth"`
 }
 
-// JWTConfig configuración para JWT
+// JWTConfig holds JWT configuration
 type JWTConfig struct {
 	SecretKey       string        `json:"secret_key" yaml:"secret_key"`
 	AccessTokenTTL  time.Duration `json:"access_token_ttl" yaml:"access_token_ttl"`
@@ -22,7 +22,7 @@ type JWTConfig struct {
 	Issuer          string        `json:"issuer" yaml:"issuer"`
 }
 
-// OAuthConfig configuración base para OAuth
+// OAuthConfig holds base OAuth configuration
 type OAuthConfig struct {
 	ClientID     string   `json:"client_id"`
 	ClientSecret string   `json:"client_secret"`
@@ -30,13 +30,13 @@ type OAuthConfig struct {
 	Scopes       []string `json:"scopes"`
 }
 
-// OAuthConfigs configuraciones para todos los proveedores OAuth
+// OAuthConfigs holds configuration for all OAuth providers
 type OAuthConfigs struct {
 	Google    OAuthConfig `json:"google" yaml:"google"`
 	Microsoft OAuthConfig `json:"microsoft" yaml:"microsoft"`
 }
 
-// DefaultConfig retorna configuración por defecto
+// DefaultConfig returns the default configuration
 func DefaultConfig() Config {
 	return Config{
 		JWT: JWTConfig{
@@ -55,7 +55,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate valida la configuración
+// Validate validates the configuration
 func (c *Config) Validate() error {
 	if c.JWT.SecretKey == "" {
 		return ErrMissingJWTSecret()
@@ -73,7 +73,7 @@ func (c *Config) Validate() error {
 		return ErrInvalidTokenTTL().WithDetail("token_type", "refresh")
 	}
 
-	// Validar configuración OAuth si está presente
+	// Validate OAuth config if present
 	if err := c.OAuth.Google.Validate("Google"); err != nil {
 		return err
 	}
@@ -85,11 +85,11 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Validate valida la configuración OAuth
+// Validate validates the OAuth configuration
 func (oc *OAuthConfig) Validate(provider string) error {
-	// Solo validar si hay configuración (permite proveedores opcionales)
+	// Only validate if configured (allows optional providers)
 	if oc.ClientID == "" && oc.ClientSecret == "" {
-		return nil // Proveedor no configurado, está bien
+		return nil // Provider not configured, that's fine
 	}
 
 	if oc.ClientID == "" {
@@ -111,12 +111,12 @@ func (oc *OAuthConfig) Validate(provider string) error {
 	return nil
 }
 
-// IsEnabled verifica si el proveedor OAuth está habilitado
+// IsEnabled checks whether the OAuth provider is enabled
 func (oc *OAuthConfig) IsEnabled() bool {
 	return oc.ClientID != "" && oc.ClientSecret != ""
 }
 
-// GetEnabledProviders retorna una lista de proveedores OAuth habilitados
+// GetEnabledProviders returns a list of enabled OAuth providers
 func (oc *OAuthConfigs) GetEnabledProviders() []string {
 	var enabled []string
 
@@ -142,7 +142,7 @@ var (
 	CodeMissingOAuthScopes       = ErrRegistry.Register("MISSING_OAUTH_SCOPES", errx.TypeValidation, http.StatusBadRequest, "OAuth scopes are required")
 )
 
-// Helper functions para crear errores de configuración
+// Helper functions for creating config errors
 func ErrMissingJWTSecret() *errx.Error {
 	return ErrRegistry.New(CodeMissingJWTSecret)
 }

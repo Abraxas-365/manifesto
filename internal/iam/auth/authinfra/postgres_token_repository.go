@@ -10,19 +10,19 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// PostgresTokenRepository implementación de PostgreSQL para TokenRepository
+// PostgresTokenRepository is the PostgreSQL implementation of TokenRepository
 type PostgresTokenRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresTokenRepository crea una nueva instancia del repositorio de tokens
+// NewPostgresTokenRepository creates a new token repository instance
 func NewPostgresTokenRepository(db *sqlx.DB) auth.TokenRepository {
 	return &PostgresTokenRepository{
 		db: db,
 	}
 }
 
-// SaveRefreshToken guarda un nuevo refresh token
+// SaveRefreshToken saves a new refresh token
 func (r *PostgresTokenRepository) SaveRefreshToken(ctx context.Context, token auth.RefreshToken) error {
 	query := `
 		INSERT INTO refresh_tokens (
@@ -40,7 +40,7 @@ func (r *PostgresTokenRepository) SaveRefreshToken(ctx context.Context, token au
 	return nil
 }
 
-// FindRefreshToken busca un refresh token por su valor
+// FindRefreshToken finds a refresh token by its value
 func (r *PostgresTokenRepository) FindRefreshToken(ctx context.Context, tokenValue string) (*auth.RefreshToken, error) {
 	query := `
 		SELECT 
@@ -60,7 +60,7 @@ func (r *PostgresTokenRepository) FindRefreshToken(ctx context.Context, tokenVal
 	return &token, nil
 }
 
-// RevokeRefreshToken revoca un refresh token
+// RevokeRefreshToken revokes a refresh token
 func (r *PostgresTokenRepository) RevokeRefreshToken(ctx context.Context, tokenValue string) error {
 	query := `
 		UPDATE refresh_tokens 
@@ -84,7 +84,7 @@ func (r *PostgresTokenRepository) RevokeRefreshToken(ctx context.Context, tokenV
 	return nil
 }
 
-// RevokeAllUserTokens revoca todos los tokens de un usuario
+// RevokeAllUserTokens revokes all tokens for a user
 func (r *PostgresTokenRepository) RevokeAllUserTokens(ctx context.Context, userID kernel.UserID) error {
 	query := `
 		UPDATE refresh_tokens 
@@ -100,7 +100,7 @@ func (r *PostgresTokenRepository) RevokeAllUserTokens(ctx context.Context, userI
 	return nil
 }
 
-// CleanExpiredTokens elimina tokens expirados (para mantenimiento)
+// CleanExpiredTokens deletes expired tokens (for maintenance)
 func (r *PostgresTokenRepository) CleanExpiredTokens(ctx context.Context) error {
 	query := `
 		DELETE FROM refresh_tokens 
@@ -114,7 +114,7 @@ func (r *PostgresTokenRepository) CleanExpiredTokens(ctx context.Context) error 
 	return nil
 }
 
-// CountActiveTokens cuenta tokens activos de un usuario (método adicional útil)
+// CountActiveTokens counts active tokens for a user
 func (r *PostgresTokenRepository) CountActiveTokens(ctx context.Context, userID kernel.UserID) (int, error) {
 	query := `
 		SELECT COUNT(*) 
@@ -131,7 +131,7 @@ func (r *PostgresTokenRepository) CountActiveTokens(ctx context.Context, userID 
 	return count, nil
 }
 
-// GetActiveTokensByUser obtiene todos los tokens activos de un usuario
+// GetActiveTokensByUser retrieves all active tokens for a user
 func (r *PostgresTokenRepository) GetActiveTokensByUser(ctx context.Context, userID kernel.UserID) ([]*auth.RefreshToken, error) {
 	query := `
 		SELECT 
@@ -147,7 +147,7 @@ func (r *PostgresTokenRepository) GetActiveTokensByUser(ctx context.Context, use
 			WithDetail("user_id", userID.String())
 	}
 
-	// Convertir a slice de punteros
+	// Convert to pointer slice
 	result := make([]*auth.RefreshToken, len(tokens))
 	for i := range tokens {
 		result[i] = &tokens[i]

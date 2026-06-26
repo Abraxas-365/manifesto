@@ -5,12 +5,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// BcryptPasswordService implementación del servicio de contraseñas usando bcrypt
+// BcryptPasswordService is the bcrypt implementation of the password service
 type BcryptPasswordService struct {
 	cost int
 }
 
-// NewBcryptPasswordService crea una nueva instancia del servicio de contraseñas
+// NewBcryptPasswordService creates a new password service instance
 func NewBcryptPasswordService(cost int) user.PasswordService {
 	if cost == 0 {
 		cost = bcrypt.DefaultCost
@@ -20,7 +20,7 @@ func NewBcryptPasswordService(cost int) user.PasswordService {
 	}
 }
 
-// HashPassword hashea una contraseña
+// HashPassword hashes a password
 func (s *BcryptPasswordService) HashPassword(password string) (string, error) {
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), s.cost)
 	if err != nil {
@@ -29,7 +29,7 @@ func (s *BcryptPasswordService) HashPassword(password string) (string, error) {
 	return string(hashedBytes), nil
 }
 
-// VerifyPassword verifica una contraseña contra su hash
+// VerifyPassword verifies a password against its hash
 func (s *BcryptPasswordService) VerifyPassword(hashedPassword, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 	return err == nil

@@ -44,12 +44,7 @@ func (k *APIKey) IsExpired() bool {
 }
 
 func (k *APIKey) HasScope(scope string) bool {
-	for _, s := range k.Scopes {
-		if s == scope || s == "*" {
-			return true
-		}
-	}
-	return false
+	return kernel.ScopesContain(k.Scopes, scope)
 }
 
 func (k *APIKey) Revoke() {

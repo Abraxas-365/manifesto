@@ -29,7 +29,7 @@ type GoogleOAuthService struct {
 	userInfoURL  string
 }
 
-// GoogleOAuthService implementación del servicio OAuth para Google
+// NewGoogleOAuthServiceFromConfig creates a new Google OAuth service from config
 func NewGoogleOAuthServiceFromConfig(cfg *config.OAuthProviderConfig, stateManager StateManager) *GoogleOAuthService {
 	return &GoogleOAuthService{
 		config: OAuthConfig{
@@ -46,12 +46,12 @@ func NewGoogleOAuthServiceFromConfig(cfg *config.OAuthProviderConfig, stateManag
 	}
 }
 
-// GetProvider retorna el proveedor OAuth
+// GetProvider returns the OAuth provider
 func (g *GoogleOAuthService) GetProvider() iam.OAuthProvider {
 	return iam.OAuthProviderGoogle
 }
 
-// GetAuthURL genera la URL de autorización de Google
+// GetAuthURL generates the Google authorization URL
 func (g *GoogleOAuthService) GetAuthURL(state string) string {
 	params := url.Values{
 		"client_id":     {g.config.ClientID},
@@ -59,19 +59,19 @@ func (g *GoogleOAuthService) GetAuthURL(state string) string {
 		"scope":         {strings.Join(g.config.Scopes, " ")},
 		"response_type": {"code"},
 		"state":         {state},
-		"access_type":   {"offline"}, // Para obtener refresh token
-		"prompt":        {"consent"}, // Forzar consent para obtener refresh token
+		"access_type":   {"offline"}, // To obtain refresh token
+		"prompt":        {"consent"}, // Force consent to obtain refresh token
 	}
 
 	return fmt.Sprintf("%s?%s", GoogleAuthURL, params.Encode())
 }
 
-// ValidateState valida el estado OAuth
+// ValidateState validates the OAuth state
 func (g *GoogleOAuthService) ValidateState(state string) bool {
 	return g.stateManager.ValidateState(state)
 }
 
-// ExchangeToken intercambia el código de autorización por tokens
+// ExchangeToken exchanges the authorization code for tokens
 func (g *GoogleOAuthService) ExchangeToken(ctx context.Context, code string) (*OAuthTokenResponse, error) {
 	data := url.Values{
 		"client_id":     {g.config.ClientID},
@@ -108,7 +108,7 @@ func (g *GoogleOAuthService) ExchangeToken(ctx context.Context, code string) (*O
 	return &tokenResp, nil
 }
 
-// GetUserInfo obtiene la información del usuario desde Google
+// GetUserInfo retrieves user information from Google
 func (g *GoogleOAuthService) GetUserInfo(ctx context.Context, accessToken string) (*OAuthUserInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", GoogleUserInfoURL, nil)
 	if err != nil {

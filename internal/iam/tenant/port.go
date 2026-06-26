@@ -6,7 +6,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/kernel"
 )
 
-// TenantRepository define el contrato para la persistencia de tenants
+// TenantRepository defines the contract for tenant persistence
 type TenantRepository interface {
 	FindByID(ctx context.Context, id kernel.TenantID) (*Tenant, error)
 	FindAll(ctx context.Context) ([]*Tenant, error)
@@ -15,7 +15,7 @@ type TenantRepository interface {
 	Delete(ctx context.Context, id kernel.TenantID) error
 }
 
-// TenantConfigRepository define el contrato para configuraciones del tenant
+// TenantConfigRepository defines the contract for tenant configurations
 type TenantConfigRepository interface {
 	FindByTenant(ctx context.Context, tenantID kernel.TenantID) (map[string]string, error)
 	SaveSetting(ctx context.Context, tenantID kernel.TenantID, key, value string) error

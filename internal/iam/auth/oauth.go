@@ -11,7 +11,7 @@ import (
 // OAuth Types
 // ============================================================================
 
-// OAuthUserInfo información del usuario desde el proveedor OAuth
+// OAuthUserInfo holds user information from the OAuth provider
 type OAuthUserInfo struct {
 	ID            string `json:"id"`
 	Email         string `json:"email"`
@@ -20,7 +20,7 @@ type OAuthUserInfo struct {
 	EmailVerified bool   `json:"email_verified"`
 }
 
-// OAuthService define el contrato para servicios OAuth
+// OAuthService defines the contract for OAuth services
 type OAuthService interface {
 	GetAuthURL(state string) string
 	ExchangeToken(ctx context.Context, code string) (*OAuthTokenResponse, error)
@@ -29,7 +29,7 @@ type OAuthService interface {
 	GetProvider() iam.OAuthProvider
 }
 
-// OAuthTokenResponse respuesta del intercambio de código por token
+// OAuthTokenResponse is the response from exchanging a code for a token
 type OAuthTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	TokenType    string `json:"token_type"`
@@ -37,7 +37,7 @@ type OAuthTokenResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-// StateManager maneja la validación de estados OAuth
+// StateManager handles OAuth state validation
 type StateManager interface {
 	GenerateState() string
 	ValidateState(state string) bool

@@ -12,19 +12,19 @@ import (
 	"github.com/lib/pq"
 )
 
-// PostgresAPIKeyRepository es la implementación en PostgreSQL de APIKeyRepository.
+// PostgresAPIKeyRepository is the PostgreSQL implementation of APIKeyRepository.
 type PostgresAPIKeyRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresAPIKeyRepository crea una nueva instancia del repositorio.
+// NewPostgresAPIKeyRepository creates a new repository instance.
 func NewPostgresAPIKeyRepository(db *sqlx.DB) apikey.APIKeyRepository {
 	return &PostgresAPIKeyRepository{
 		db: db,
 	}
 }
 
-// Save inserta o actualiza una APIKey.
+// Save inserts or updates an APIKey.
 func (r *PostgresAPIKeyRepository) Save(ctx context.Context, key apikey.APIKey) error {
 	exists, err := r.keyExists(ctx, key.ID)
 	if err != nil {
@@ -94,7 +94,7 @@ func (r *PostgresAPIKeyRepository) update(ctx context.Context, key apikey.APIKey
 	return nil
 }
 
-// FindByID busca una API key por su ID y tenant ID.
+// FindByID finds an API key by its ID and tenant ID.
 func (r *PostgresAPIKeyRepository) FindByID(ctx context.Context, id string, tenantID kernel.TenantID) (*apikey.APIKey, error) {
 	var key apiKeyPersistence
 	query := `SELECT * FROM api_keys WHERE id = $1 AND tenant_id = $2`
@@ -109,7 +109,7 @@ func (r *PostgresAPIKeyRepository) FindByID(ctx context.Context, id string, tena
 	return &domainKey, nil
 }
 
-// FindByHash busca una API key por su hash SHA-256.
+// FindByHash finds an API key by its SHA-256 hash.
 func (r *PostgresAPIKeyRepository) FindByHash(ctx context.Context, keyHash string) (*apikey.APIKey, error) {
 	var key apiKeyPersistence
 	query := `SELECT * FROM api_keys WHERE key_hash = $1`
@@ -124,7 +124,7 @@ func (r *PostgresAPIKeyRepository) FindByHash(ctx context.Context, keyHash strin
 	return &domainKey, nil
 }
 
-// FindByTenant busca todas las API keys para un tenant.
+// FindByTenant finds all API keys for a tenant.
 func (r *PostgresAPIKeyRepository) FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*apikey.APIKey, error) {
 	var keys []apiKeyPersistence
 	query := `SELECT * FROM api_keys WHERE tenant_id = $1 ORDER BY created_at DESC`
@@ -135,7 +135,7 @@ func (r *PostgresAPIKeyRepository) FindByTenant(ctx context.Context, tenantID ke
 	return toDomainSlice(keys), nil
 }
 
-// FindActiveByTenant busca todas las API keys activas de un tenant.
+// FindActiveByTenant finds all active API keys for a tenant.
 func (r *PostgresAPIKeyRepository) FindActiveByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*apikey.APIKey, error) {
 	var keys []apiKeyPersistence
 	query := `SELECT * FROM api_keys WHERE tenant_id = $1 AND is_active = true ORDER BY created_at DESC`
@@ -146,7 +146,7 @@ func (r *PostgresAPIKeyRepository) FindActiveByTenant(ctx context.Context, tenan
 	return toDomainSlice(keys), nil
 }
 
-// FindByUser busca todas las API keys para un usuario específico.
+// FindByUser finds all API keys for a specific user.
 func (r *PostgresAPIKeyRepository) FindByUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) ([]*apikey.APIKey, error) {
 	var keys []apiKeyPersistence
 	query := `SELECT * FROM api_keys WHERE user_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`
@@ -157,7 +157,7 @@ func (r *PostgresAPIKeyRepository) FindByUser(ctx context.Context, userID kernel
 	return toDomainSlice(keys), nil
 }
 
-// Delete elimina una API key de la base de datos.
+// Delete removes an API key from the database.
 func (r *PostgresAPIKeyRepository) Delete(ctx context.Context, id string, tenantID kernel.TenantID) error {
 	query := `DELETE FROM api_keys WHERE id = $1 AND tenant_id = $2`
 	result, err := r.db.ExecContext(ctx, query, id, tenantID.String())
@@ -175,7 +175,7 @@ func (r *PostgresAPIKeyRepository) Delete(ctx context.Context, id string, tenant
 	return nil
 }
 
-// UpdateLastUsed actualiza el timestamp de último uso de una key.
+// UpdateLastUsed updates the last used timestamp for a key.
 func (r *PostgresAPIKeyRepository) UpdateLastUsed(ctx context.Context, id string) error {
 	query := `UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`
 	_, err := r.db.ExecContext(ctx, query, id)
@@ -195,7 +195,7 @@ func (r *PostgresAPIKeyRepository) keyExists(ctx context.Context, id string) (bo
 	return exists, nil
 }
 
-// Struct auxiliar para persistencia que maneja tipos de DB específicos.
+// apiKeyPersistence is the persistence model with DB-specific types.
 type apiKeyPersistence struct {
 	ID          string          `db:"id"`
 	KeyHash     string          `db:"key_hash"`
@@ -212,7 +212,7 @@ type apiKeyPersistence struct {
 	UpdatedAt   time.Time       `db:"updated_at"`
 }
 
-// toPersistence convierte el modelo de dominio a un modelo de persistencia.
+// toPersistence converts the domain model to a persistence model.
 func toPersistence(key apikey.APIKey) apiKeyPersistence {
 	return apiKeyPersistence{
 		ID:          key.ID,
@@ -231,7 +231,7 @@ func toPersistence(key apikey.APIKey) apiKeyPersistence {
 	}
 }
 
-// toDomain convierte el modelo de persistencia al modelo de dominio.
+// toDomain converts the persistence model to the domain model.
 func toDomain(p apiKeyPersistence) apikey.APIKey {
 	return apikey.APIKey{
 		ID:          p.ID,
@@ -250,7 +250,7 @@ func toDomain(p apiKeyPersistence) apikey.APIKey {
 	}
 }
 
-// toDomainSlice convierte un slice de persistencia a un slice de dominio.
+// toDomainSlice converts a persistence slice to a domain slice.
 func toDomainSlice(pKeys []apiKeyPersistence) []*apikey.APIKey {
 	domainKeys := make([]*apikey.APIKey, len(pKeys))
 	for i, p := range pKeys {

@@ -6,7 +6,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/kernel"
 )
 
-// UserRepository define el contrato para la persistencia de usuarios
+// UserRepository defines the contract for user persistence
 type UserRepository interface {
 	FindByID(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) (*User, error)
 	FindByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*User, error)
@@ -17,7 +17,7 @@ type UserRepository interface {
 	FindByEmailAcrossTenants(ctx context.Context, email string) ([]*User, error)
 }
 
-// PasswordService define el contrato para el manejo de contraseñas
+// PasswordService defines the contract for managing passwords
 type PasswordService interface {
 	HashPassword(password string) (string, error)
 	VerifyPassword(hashedPassword, password string) bool

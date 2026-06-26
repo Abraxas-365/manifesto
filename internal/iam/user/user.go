@@ -15,18 +15,17 @@ import (
 // User Entity
 // ============================================================================
 
-// UserStatus define los posibles estados de un usuario
+// UserStatus defines possible states for a user
 type UserStatus string
 
 const (
 	UserStatusActive    UserStatus = "ACTIVE"
 	UserStatusInactive  UserStatus = "INACTIVE"
 	UserStatusSuspended UserStatus = "SUSPENDED"
-	UserStatusPending   UserStatus = "PENDING" // Invitado pero no completó onboarding
+	UserStatusPending   UserStatus = "PENDING" // Invited but has not completed onboarding
 )
 
-// User es la entidad rica que representa a un usuario en el sistema
-// User entity
+// User entity representing a user in the system
 type User struct {
 	ID       kernel.UserID   `db:"id" json:"id"`
 	TenantID kernel.TenantID `db:"tenant_id" json:"tenant_id"`
@@ -83,17 +82,17 @@ func (u *User) LinkOAuth(provider iam.OAuthProvider, providerID string) {
 // Domain Methods
 // ============================================================================
 
-// IsActive verifica si el usuario está activo
+// IsActive checks if the user is active
 func (u *User) IsActive() bool {
 	return u.Status == UserStatusActive
 }
 
-// CanLogin verifica si el usuario puede iniciar sesión
+// CanLogin checks if the user can log in
 func (u *User) CanLogin() bool {
 	return u.IsActive() && u.EmailVerified
 }
 
-// Activate activa un usuario pendiente
+// Activate activates a pending user
 func (u *User) Activate() error {
 	if u.Status != UserStatusPending {
 		return ErrInvalidStatus().WithDetail("current_status", u.Status)
@@ -104,7 +103,7 @@ func (u *User) Activate() error {
 	return nil
 }
 
-// Suspend suspende un usuario activo
+// Suspend suspends an active user
 func (u *User) Suspend(reason string) error {
 	if !u.IsActive() {
 		return ErrInvalidStatus().WithDetail("current_status", u.Status)
@@ -115,14 +114,14 @@ func (u *User) Suspend(reason string) error {
 	return nil
 }
 
-// UpdateLastLogin actualiza la fecha del último login
+// UpdateLastLogin updates the last login timestamp
 func (u *User) UpdateLastLogin() {
 	now := time.Now()
 	u.LastLoginAt = &now
 	u.UpdatedAt = now
 }
 
-// UpdateProfile actualiza la información del perfil
+// UpdateProfile updates the user's profile information
 func (u *User) UpdateProfile(name, picture string) {
 	if name != "" {
 		u.Name = name
@@ -137,35 +136,17 @@ func (u *User) UpdateProfile(name, picture string) {
 // Scope Management Methods
 // ============================================================================
 
-// HasScope verifica si el usuario tiene un scope específico
+// HasScope checks if the user has a specific scope
 func (u *User) HasScope(scope string) bool {
-	for _, s := range u.Scopes {
-		// Exact match or wildcard "*"
-		if s == scope || s == "*" {
-			return true
-		}
-		// Wildcard match (e.g., "channels:*" matches "channels:read")
-		if len(s) > 2 && s[len(s)-2:] == ":*" {
-			prefix := s[:len(s)-2]
-			if len(scope) > len(prefix) && scope[:len(prefix)] == prefix && scope[len(prefix)] == ':' {
-				return true
-			}
-		}
-	}
-	return false
+	return kernel.ScopesContain(u.Scopes, scope)
 }
 
-// IsAdmin verifica si el usuario tiene permisos de administrador
-func (u *User) IsAdmin() bool {
-	return u.HasScope("*") || u.HasScope("admin:*")
-}
-
-// HasAnyScope verifica si el usuario tiene alguno de los scopes proporcionados
+// HasAnyScope checks if the user has any of the provided scopes
 func (u *User) HasAnyScope(scopes ...string) bool {
 	return slices.ContainsFunc(scopes, u.HasScope)
 }
 
-// HasAllScopes verifica si el usuario tiene todos los scopes proporcionados
+// HasAllScopes checks if the user has all of the provided scopes
 func (u *User) HasAllScopes(scopes ...string) bool {
 	for _, scope := range scopes {
 		if !u.HasScope(scope) {
@@ -175,7 +156,7 @@ func (u *User) HasAllScopes(scopes ...string) bool {
 	return true
 }
 
-// AddScope agrega un scope al usuario
+// AddScope adds a scope to the user
 func (u *User) AddScope(scope string) {
 	if !u.HasScope(scope) {
 		u.Scopes = append(u.Scopes, scope)
@@ -183,7 +164,7 @@ func (u *User) AddScope(scope string) {
 	}
 }
 
-// RemoveScope remueve un scope del usuario
+// RemoveScope removes a scope from the user
 func (u *User) RemoveScope(scope string) {
 	var newScopes []string
 	for _, s := range u.Scopes {
@@ -195,28 +176,17 @@ func (u *User) RemoveScope(scope string) {
 	u.UpdatedAt = time.Now()
 }
 
-// SetScopes establece los scopes del usuario
+// SetScopes sets the user's scopes
 func (u *User) SetScopes(scopes []string) {
 	u.Scopes = scopes
 	u.UpdatedAt = time.Now()
-}
-
-// MakeAdmin convierte al usuario en administrador (asigna scope "*")
-func (u *User) MakeAdmin() {
-	u.AddScope("*")
-}
-
-// RevokeAdmin remueve permisos de administrador
-func (u *User) RevokeAdmin() {
-	u.RemoveScope("*")
-	u.RemoveScope("admin:*")
 }
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
-// UserDetailsDTO contiene información básica de un usuario para otros módulos
+// UserDetailsDTO contains basic user information for other modules
 type UserDetailsDTO struct {
 	ID            kernel.UserID     `json:"id"`
 	TenantID      kernel.TenantID   `json:"tenant_id"`
@@ -228,7 +198,7 @@ type UserDetailsDTO struct {
 	OAuthProvider iam.OAuthProvider `json:"oauth_provider"`
 }
 
-// ToDTO convierte la entidad User a UserDetailsDTO
+// ToDTO converts the User entity to UserDetailsDTO
 func (u *User) ToDTO() UserDetailsDTO {
 	return UserDetailsDTO{
 		ID:            u.ID,
@@ -243,69 +213,49 @@ func (u *User) ToDTO() UserDetailsDTO {
 }
 
 // ============================================================================
-// Service DTOs - Para operaciones de la capa de servicio
+// Service DTOs - For service layer operations
 // ============================================================================
 
-// CreateUserRequest representa la petición para crear un usuario
+// CreateUserRequest represents the request to create a user
 type CreateUserRequest struct {
 	TenantID      kernel.TenantID `json:"tenant_id" validate:"required"`
 	Email         string          `json:"email" validate:"required,email"`
 	Name          string          `json:"name" validate:"required,min=2"`
-	Scopes        []string        `json:"scopes,omitempty"`         // ✅ Direct scopes
-	ScopeTemplate *string         `json:"scope_template,omitempty"` // ✅ Template name (e.g., "recruiter", "hiring_manager")
+	Scopes []string `json:"scopes,omitempty"`
 }
 
-// UpdateUserRequest representa la petición para actualizar un usuario
+// UpdateUserRequest represents the request to update a user
 type UpdateUserRequest struct {
 	TenantID      kernel.TenantID `json:"tenant_id" validate:"required"`
-	Name          *string         `json:"name,omitempty" validate:"omitempty,min=2"`
-	Status        *UserStatus     `json:"status,omitempty"`
-	Scopes        []string        `json:"scopes,omitempty"`         // ✅ Direct scopes to set
-	ScopeTemplate *string         `json:"scope_template,omitempty"` // ✅ Template to apply
+	Name   *string     `json:"name,omitempty" validate:"omitempty,min=2"`
+	Status *UserStatus `json:"status,omitempty"`
+	Scopes []string    `json:"scopes,omitempty"`
 }
 
-// InviteUserRequest para invitar usuarios a un tenant
-type InviteUserRequest struct {
-	Email         string   `json:"email" validate:"required,email"`
-	Scopes        []string `json:"scopes,omitempty"`
-	ScopeTemplate *string  `json:"scope_template,omitempty"`
-}
-
-// UserResponse representa la respuesta completa de un usuario
+// UserResponse represents the full response for a user
 type UserResponse struct {
 	User User `json:"user"`
 }
 
-// ToDTO convierte UserResponse a UserResponseDTO
+// ToDTO converts UserResponse to UserResponseDTO
 func (ur *UserResponse) ToDTO() UserResponseDTO {
 	return UserResponseDTO{
 		User: ur.User.ToDTO(),
 	}
 }
 
-// UserResponseDTO es la versión DTO de UserResponse
+// UserResponseDTO is the DTO version of UserResponse
 type UserResponseDTO struct {
 	User UserDetailsDTO `json:"user"`
 }
 
-// SuspendUserRequest para suspender un usuario
-type SuspendUserRequest struct {
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
-	Reason   string          `json:"reason" validate:"required,min=5"`
-}
-
-// ActivateUserRequest para activar un usuario
-type ActivateUserRequest struct {
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
-}
-
-// UserListResponse para listas de usuarios
+// UserListResponse for lists of users
 type UserListResponse struct {
 	Users []UserResponse `json:"users"`
 	Total int            `json:"total"`
 }
 
-// ToDTO convierte UserListResponse a UserListResponseDTO
+// ToDTO converts UserListResponse to UserListResponseDTO
 func (ulr *UserListResponse) ToDTO() UserListResponseDTO {
 	var usersDTO []UserResponseDTO
 	for _, u := range ulr.Users {
@@ -318,7 +268,7 @@ func (ulr *UserListResponse) ToDTO() UserListResponseDTO {
 	}
 }
 
-// UserListResponseDTO es la versión DTO de UserListResponse
+// UserListResponseDTO is the DTO version of UserListResponse
 type UserListResponseDTO struct {
 	Users []UserResponseDTO `json:"users"`
 	Total int               `json:"total"`
@@ -328,60 +278,35 @@ type UserListResponseDTO struct {
 // Scope Management DTOs
 // ============================================================================
 
-// ScopeDetail información detallada de un scope
+// ScopeDetail detailed information about a scope
 type ScopeDetail struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Category    string `json:"category"`
 }
 
-// AddScopesRequest para agregar scopes a un usuario
+// AddScopesRequest for adding scopes to a user
 type AddScopesRequest struct {
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
-	Scopes   []string        `json:"scopes" validate:"required,min=1"`
+	Scopes []string `json:"scopes" validate:"required,min=1"`
 }
 
-// RemoveScopesRequest para remover scopes de un usuario
+// RemoveScopesRequest for removing scopes from a user
 type RemoveScopesRequest struct {
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
-	Scopes   []string        `json:"scopes" validate:"required,min=1"`
+	Scopes []string `json:"scopes" validate:"required,min=1"`
 }
 
-// SetScopesRequest para establecer scopes de un usuario
-type SetScopesRequest struct {
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
-	Scopes   []string        `json:"scopes" validate:"required,min=1"`
-}
-
-// ApplyScopeTemplateRequest para aplicar una plantilla de scopes
-type ApplyScopeTemplateRequest struct {
-	TenantID     kernel.TenantID `json:"tenant_id" validate:"required"`
-	TemplateName string          `json:"template_name" validate:"required"`
-}
-
-// UserScopesResponse respuesta con los scopes de un usuario
+// UserScopesResponse response with a user's scopes
 type UserScopesResponse struct {
 	UserID       kernel.UserID `json:"user_id"`
 	Scopes       []string      `json:"scopes"`
 	ScopeDetails []ScopeDetail `json:"scope_details"`
 	TotalScopes  int           `json:"total_scopes"`
-	IsAdmin      bool          `json:"is_admin"`
 }
 
-// ScopeTemplateResponse respuesta con detalles de una plantilla
-type ScopeTemplateResponse struct {
-	TemplateName string        `json:"template_name"`
-	Description  string        `json:"description,omitempty"`
-	Scopes       []string      `json:"scopes"`
-	ScopeDetails []ScopeDetail `json:"scope_details"`
-	TotalScopes  int           `json:"total_scopes"`
-}
-
-// AvailableScopesResponse respuesta con todos los scopes disponibles
+// AvailableScopesResponse response with all available scopes
 type AvailableScopesResponse struct {
 	TotalScopes int                      `json:"total_scopes"`
 	Categories  map[string][]ScopeDetail `json:"categories"`
-	Templates   []string                 `json:"templates"`
 }
 
 // ============================================================================
@@ -398,8 +323,7 @@ var (
 	CodeUserSuspended        = ErrRegistry.Register("SUSPENDED", errx.TypeBusiness, http.StatusForbidden, "User suspended")
 	CodeOnboardingRequired   = ErrRegistry.Register("ONBOARDING_REQUIRED", errx.TypeBusiness, http.StatusPreconditionRequired, "Onboarding required")
 	CodeInvalidStatus        = ErrRegistry.Register("INVALID_STATUS", errx.TypeBusiness, http.StatusBadRequest, "Invalid user status for this operation")
-	CodeInvalidScopeTemplate = ErrRegistry.Register("INVALID_SCOPE_TEMPLATE", errx.TypeValidation, http.StatusBadRequest, "Scope template not found")
-	CodeInvalidScopes        = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
+	CodeInvalidScopes = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
 	CodeScopeNotFound        = ErrRegistry.Register("SCOPE_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Scope not found")
 	CodeInsufficientScopes   = ErrRegistry.Register("INSUFFICIENT_SCOPES", errx.TypeAuthorization, http.StatusForbidden, "Insufficient scopes")
 )
@@ -431,10 +355,6 @@ func ErrOnboardingRequired() *errx.Error {
 
 func ErrInvalidStatus() *errx.Error {
 	return ErrRegistry.New(CodeInvalidStatus)
-}
-
-func ErrInvalidScopeTemplate() *errx.Error {
-	return ErrRegistry.New(CodeInvalidScopeTemplate)
 }
 
 func ErrInvalidScopes() *errx.Error {

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -26,6 +27,7 @@ type PasswordlessAuthHandlers struct {
 	invitationRepo invitation.InvitationRepository
 	otpService     *otpsrv.OTPService
 	auditService   AuditService
+	scopeResolver  ScopeResolver
 	config         *config.Config
 }
 
@@ -38,6 +40,7 @@ func NewPasswordlessAuthHandlers(
 	invitationRepo invitation.InvitationRepository,
 	otpService *otpsrv.OTPService,
 	auditService AuditService,
+	scopeResolver ScopeResolver,
 	config *config.Config,
 ) *PasswordlessAuthHandlers {
 	return &PasswordlessAuthHandlers{
@@ -49,8 +52,13 @@ func NewPasswordlessAuthHandlers(
 		invitationRepo: invitationRepo,
 		otpService:     otpService,
 		auditService:   auditService,
+		scopeResolver:  scopeResolver,
 		config:         config,
 	}
+}
+
+func (h *PasswordlessAuthHandlers) resolveScopes(ctx context.Context, userEntity *user.User) []string {
+	return ResolveScopes(ctx, h.scopeResolver, userEntity.ID, userEntity.TenantID, userEntity.Scopes)
 }
 
 // RegisterRoutes registers passwordless auth routes
@@ -565,11 +573,12 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		h.userRepo.Save(c.Context(), *userEntity)
 	}
 
-	// 6. Generate JWT tokens
+	// 6. Generate JWT tokens with role-resolved scopes
+	effectiveScopes := h.resolveScopes(c.Context(), userEntity)
 	accessToken, err := h.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
 		"email":  userEntity.Email,
 		"name":   userEntity.Name,
-		"scopes": userEntity.Scopes,
+		"scopes": effectiveScopes,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

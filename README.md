@@ -728,9 +728,12 @@ func (r *Repository) FindByID(ctx context.Context, id UserID) (*User, error)
 
 ---
 
-## 11. **Scope-Based Permissions: Fine-Grained Access Control**
+## 11. **Scopes & Roles: Fine-Grained Access Control**
 
-### Why Scopes Instead of Roles?
+### Scopes
+
+Scopes are the atomic unit of permission. They follow a `resource:action` pattern
+and can be assigned directly to users or grouped into roles.
 
 * **Composability** — Mix and match permissions
 * **API-friendly** — Works for both users and API keys
@@ -742,11 +745,49 @@ const (
     ScopeJobsRead    = "jobs:read"
     ScopeJobsWrite   = "jobs:write"
     ScopeJobsAll     = "jobs:*"
-
-    ScopeCandidatesRead  = "candidates:read"
-    ScopeCandidatesWrite = "candidates:write"
 )
+```
 
+### Roles
+
+Roles are named collections of scopes that can be assigned to users. A user's
+effective permissions are the union of their direct scopes and all scopes from
+their assigned roles.
+
+```
+User "alice"
+├── Direct scopes: ["reports:view"]
+└── Roles:
+    ├── "Editor"   → ["content:read", "content:write"]
+    └── "Reviewer" → ["content:read", "reviews:write"]
+
+Effective scopes: ["reports:view", "content:read", "content:write", "reviews:write"]
+```
+
+### Scope Requirements for Role & Scope Management
+
+Every management endpoint is itself protected by scopes:
+
+**Role endpoints** (`/roles`):
+
+| Scope Required | Endpoints |
+|:---|:---|
+| `roles:read` | `GET /roles`, `GET /roles/:id`, `GET /users/:userId/roles` |
+| `roles:write` | `POST /roles`, `PUT /roles/:id` |
+| `roles:delete` | `DELETE /roles/:id` |
+| `roles:assign` | `POST /roles/:id/assign`, `DELETE /roles/:id/users/:userId` |
+
+**Scope endpoints** (`/scopes`, `/users/:userId/scopes`):
+
+| Scope Required | Endpoints |
+|:---|:---|
+| `scopes:read` | `GET /scopes`, `GET /users/:userId/scopes` |
+| `scopes:write` | `PUT /users/:userId/scopes` |
+| `scopes:assign` | `POST /users/:userId/scopes`, `DELETE /users/:userId/scopes` |
+
+### Middleware Usage
+
+```go
 func (am *UnifiedAuthMiddleware) RequireScope(scope string) fiber.Handler {
     return func(c *fiber.Ctx) error {
         authContext, _ := GetAuthContext(c)
@@ -912,7 +953,7 @@ app.Post("/jobs",
 )
 
 app.Delete("/users/:id",
-    authMiddleware.RequireAdminOrScope(auth.ScopeUsersDelete),
+    authMiddleware.RequireScope(auth.ScopeUsersDelete),
     userHandlers.DeleteUser,
 )
 ```

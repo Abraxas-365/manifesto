@@ -15,7 +15,7 @@ import (
 // Invitation Entity
 // ============================================================================
 
-// InvitationStatus define los posibles estados de una invitación
+// InvitationStatus defines the possible states of an invitation
 type InvitationStatus string
 
 const (
@@ -25,7 +25,7 @@ const (
 	InvitationStatusRevoked  InvitationStatus = "REVOKED"
 )
 
-// Invitation es la entidad que representa una invitación de usuario
+// Invitation is the entity that represents a user invitation
 type Invitation struct {
 	ID         string           `db:"id" json:"id"`
 	TenantID   kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
@@ -46,45 +46,45 @@ type Invitation struct {
 // ============================================================================
 
 // ============================================================================
-// Getter Methods (para interfaces compatibles con auth)
+// Getter Methods (for auth-compatible interfaces)
 // ============================================================================
 
-// GetID retorna el ID de la invitación
+// GetID returns the invitation ID
 func (i *Invitation) GetID() string {
 	return i.ID
 }
 
-// GetTenantID retorna el TenantID de la invitación
+// GetTenantID returns the invitation TenantID
 func (i *Invitation) GetTenantID() kernel.TenantID {
 	return i.TenantID
 }
 
-// GetEmail retorna el email de la invitación
+// GetEmail returns the invitation email
 func (i *Invitation) GetEmail() string {
 	return i.Email
 }
 
-// GetScopes retorna los scopes de la invitación
+// GetScopes returns the invitation scopes
 func (i *Invitation) GetScopes() []string {
 	return i.Scopes
 }
 
-// IsValid verifica si la invitación es válida
+// IsValid checks whether the invitation is valid
 func (i *Invitation) IsValid() bool {
 	return i.Status == InvitationStatusPending && time.Now().Before(i.ExpiresAt)
 }
 
-// IsExpired verifica si la invitación ha expirado
+// IsExpired checks whether the invitation has expired
 func (i *Invitation) IsExpired() bool {
 	return time.Now().After(i.ExpiresAt)
 }
 
-// CanBeAccepted verifica si la invitación puede ser aceptada
+// CanBeAccepted checks whether the invitation can be accepted
 func (i *Invitation) CanBeAccepted() bool {
 	return i.Status == InvitationStatusPending && !i.IsExpired()
 }
 
-// Accept marca la invitación como aceptada
+// Accept marks the invitation as accepted
 func (i *Invitation) Accept(userID kernel.UserID) error {
 	if !i.CanBeAccepted() {
 		if i.IsExpired() {
@@ -102,7 +102,7 @@ func (i *Invitation) Accept(userID kernel.UserID) error {
 	return nil
 }
 
-// Revoke revoca la invitación
+// Revoke revokes the invitation
 func (i *Invitation) Revoke() error {
 	if i.Status == InvitationStatusAccepted {
 		return ErrInvitationAlreadyAccepted()
@@ -116,7 +116,7 @@ func (i *Invitation) Revoke() error {
 	return nil
 }
 
-// MarkAsExpired marca la invitación como expirada
+// MarkAsExpired marks the invitation as expired
 func (i *Invitation) MarkAsExpired() {
 	if i.Status == InvitationStatusPending && i.IsExpired() {
 		i.Status = InvitationStatusExpired
@@ -124,17 +124,12 @@ func (i *Invitation) MarkAsExpired() {
 	}
 }
 
-// HasScope verifica si la invitación incluye un scope específico
+// HasScope checks whether the invitation includes a specific scope
 func (i *Invitation) HasScope(scope string) bool {
-	for _, s := range i.Scopes {
-		if s == scope || s == "*" {
-			return true
-		}
-	}
-	return false
+	return kernel.ScopesContain(i.Scopes, scope)
 }
 
-// HasAnyScope verifica si la invitación incluye alguno de los scopes
+// HasAnyScope checks whether the invitation includes any of the given scopes
 func (i *Invitation) HasAnyScope(scopes ...string) bool {
 	return slices.ContainsFunc(scopes, i.HasScope)
 }
@@ -143,7 +138,7 @@ func (i *Invitation) HasAnyScope(scopes ...string) bool {
 // DTOs
 // ============================================================================
 
-// InvitationDetailsDTO contiene información básica de una invitación
+// InvitationDetailsDTO contains basic invitation information
 type InvitationDetailsDTO struct {
 	ID         string           `json:"id"`
 	TenantID   kernel.TenantID  `json:"tenant_id"`
@@ -155,7 +150,7 @@ type InvitationDetailsDTO struct {
 	CreatedAt  time.Time        `json:"created_at"`
 }
 
-// ToDTO convierte la entidad Invitation a InvitationDetailsDTO
+// ToDTO converts the Invitation entity to InvitationDetailsDTO
 func (i *Invitation) ToDTO() InvitationDetailsDTO {
 	return InvitationDetailsDTO{
 		ID:         i.ID,
@@ -170,43 +165,39 @@ func (i *Invitation) ToDTO() InvitationDetailsDTO {
 }
 
 // ============================================================================
-// Service DTOs - Para operaciones de la capa de servicio
+// Service DTOs - For service layer operations
 // ============================================================================
 
-// CreateInvitationRequest representa la petición para crear una invitación
+// CreateInvitationRequest represents a request to create an invitation
 type CreateInvitationRequest struct {
-	Email         string   `json:"email" validate:"required,email"`
-	Scopes        []string `json:"scopes,omitempty"`         // ✅ Direct scopes
-	ScopeTemplate *string  `json:"scope_template,omitempty"` // ✅ Optional: "recruiter", "hiring_manager", etc
-	ExpiresIn     *int     `json:"expires_in,omitempty"`     // Días hasta expiración (default: 7)
+	Email     string   `json:"email" validate:"required,email"`
+	Scopes    []string `json:"scopes,omitempty"`
+	ExpiresIn *int     `json:"expires_in,omitempty"` // Days until expiration (default: 7)
 }
 
-// AcceptInvitationRequest representa la petición para aceptar una invitación
+// AcceptInvitationRequest represents a request to accept an invitation
 type AcceptInvitationRequest struct {
 	Token string `json:"token" validate:"required"`
 }
 
-// InvitationResponse representa la respuesta con información de invitación
+// InvitationResponse represents a response with invitation information
 type InvitationResponse struct {
-	Invitation     Invitation `json:"invitation"`
-	ScopeTemplates []string   `json:"scope_templates,omitempty"` // ✅ Available templates
+	Invitation Invitation `json:"invitation"`
 }
 
 // ToDTO convierte InvitationResponse a InvitationResponseDTO
 func (ir *InvitationResponse) ToDTO() InvitationResponseDTO {
 	return InvitationResponseDTO{
-		Invitation:     ir.Invitation.ToDTO(),
-		ScopeTemplates: ir.ScopeTemplates,
+		Invitation: ir.Invitation.ToDTO(),
 	}
 }
 
-// InvitationResponseDTO es la versión DTO de InvitationResponse
+// InvitationResponseDTO is the DTO version of InvitationResponse
 type InvitationResponseDTO struct {
-	Invitation     InvitationDetailsDTO `json:"invitation"`
-	ScopeTemplates []string             `json:"scope_templates,omitempty"`
+	Invitation InvitationDetailsDTO `json:"invitation"`
 }
 
-// InvitationListResponse para listas de invitaciones
+// InvitationListResponse for invitation lists
 type InvitationListResponse struct {
 	Invitations []InvitationResponse `json:"invitations"`
 	Total       int                  `json:"total"`
@@ -225,23 +216,23 @@ func (ilr *InvitationListResponse) ToDTO() InvitationListResponseDTO {
 	}
 }
 
-// InvitationListResponseDTO es la versión DTO de InvitationListResponse
+// InvitationListResponseDTO is the DTO version of InvitationListResponse
 type InvitationListResponseDTO struct {
 	Invitations []InvitationResponseDTO `json:"invitations"`
 	Total       int                     `json:"total"`
 }
 
-// RevokeInvitationRequest para revocar una invitación
+// RevokeInvitationRequest for revoking an invitation
 type RevokeInvitationRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// ValidateInvitationRequest para validar un token de invitación
+// ValidateInvitationRequest for validating an invitation token
 type ValidateInvitationRequest struct {
 	Token string `json:"token" validate:"required"`
 }
 
-// ValidateInvitationResponse respuesta de validación de invitación
+// ValidateInvitationResponse is the invitation validation response
 type ValidateInvitationResponse struct {
 	Valid      bool                  `json:"valid"`
 	Invitation *InvitationDetailsDTO `json:"invitation,omitempty"`
@@ -252,7 +243,7 @@ type ValidateInvitationResponse struct {
 // Helper Functions
 // ============================================================================
 
-// GenerateInvitationToken genera un token único para la invitación
+// GenerateInvitationToken generates a unique token for the invitation
 func GenerateInvitationToken(byteLength int) (string, error) {
 	bytes := make([]byte, byteLength)
 	if _, err := rand.Read(bytes); err != nil {
@@ -282,8 +273,7 @@ var (
 	CodeInvitationAlreadyRevoked  = ErrRegistry.Register("ALREADY_REVOKED", errx.TypeBusiness, http.StatusConflict, "Invitation already revoked")
 	CodeInvitationAlreadyExists   = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "A pending invitation already exists for this email")
 	CodeUserAlreadyExists         = ErrRegistry.Register("USER_ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "User already exists in this tenant")
-	CodeInvalidScopeTemplate      = ErrRegistry.Register("INVALID_SCOPE_TEMPLATE", errx.TypeValidation, http.StatusBadRequest, "Scope template not found")
-	CodeInvalidScopes             = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
+	CodeInvalidScopes = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
 )
 
 // Helper functions
@@ -313,10 +303,6 @@ func ErrInvitationAlreadyExists() *errx.Error {
 
 func ErrUserAlreadyExists() *errx.Error {
 	return ErrRegistry.New(CodeUserAlreadyExists)
-}
-
-func ErrInvalidScopeTemplate() *errx.Error {
-	return ErrRegistry.New(CodeInvalidScopeTemplate)
 }
 
 func ErrInvalidScopes() *errx.Error {

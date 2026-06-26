@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// InMemoryStateManager implementación en memoria del StateManager
+// InMemoryStateManager is an in-memory implementation of StateManager
 type InMemoryStateManager struct {
 	states map[string]*stateEntry
 	mu     sync.RWMutex
@@ -21,38 +21,40 @@ type stateEntry struct {
 	expiresAt time.Time
 }
 
-// NewInMemoryStateManager crea un nuevo state manager en memoria
+// NewInMemoryStateManager creates a new in-memory state manager
 func NewInMemoryStateManager(ttl time.Duration) *InMemoryStateManager {
-	return &InMemoryStateManager{
+	sm := &InMemoryStateManager{
 		states: make(map[string]*stateEntry),
 		ttl:    ttl,
 	}
+	go sm.cleanup()
+	return sm
 }
 
-// GenerateState genera un nuevo estado OAuth
+// GenerateState generates a new OAuth state
 func (sm *InMemoryStateManager) GenerateState() string {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback en caso de error
+		// Fallback on error
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(bytes)
 }
 
-// StoreState almacena un estado con sus datos asociados
+// StoreState stores a state with its associated data
 func (sm *InMemoryStateManager) StoreState(ctx context.Context, state string, data map[string]any) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	sm.states[state] = &stateEntry{
 		data:      data,
-		expiresAt: time.Now().Add(sm.ttl), // Estados válidos por 10 minutos
+		expiresAt: time.Now().Add(sm.ttl),
 	}
 
 	return nil
 }
 
-// ValidateState valida si un estado es válido
+// ValidateState checks whether a state is valid
 func (sm *InMemoryStateManager) ValidateState(state string) bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -65,7 +67,7 @@ func (sm *InMemoryStateManager) ValidateState(state string) bool {
 	return time.Now().Before(entry.expiresAt)
 }
 
-// GetStateData obtiene los datos asociados a un estado
+// GetStateData retrieves the data associated with a state
 func (sm *InMemoryStateManager) GetStateData(ctx context.Context, state string) (map[string]any, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -80,14 +82,14 @@ func (sm *InMemoryStateManager) GetStateData(ctx context.Context, state string) 
 		return nil, ErrInvalidState()
 	}
 
-	// Eliminar el estado después de usarlo (one-time use)
+	// Delete the state after use (one-time use)
 	data := entry.data
 	delete(sm.states, state)
 
 	return data, nil
 }
 
-// cleanup limpia estados expirados periodicamente
+// cleanup periodically removes expired states
 func (sm *InMemoryStateManager) cleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()

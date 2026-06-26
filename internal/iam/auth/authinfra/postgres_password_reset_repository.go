@@ -9,19 +9,19 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// PostgresPasswordResetRepository implementación de PostgreSQL para PasswordResetRepository
+// PostgresPasswordResetRepository is the PostgreSQL implementation of PasswordResetRepository
 type PostgresPasswordResetRepository struct {
 	db *sqlx.DB
 }
 
-// NewPostgresPasswordResetRepository crea una nueva instancia del repositorio de reset de contraseña
+// NewPostgresPasswordResetRepository creates a new password reset repository instance
 func NewPostgresPasswordResetRepository(db *sqlx.DB) auth.PasswordResetRepository {
 	return &PostgresPasswordResetRepository{
 		db: db,
 	}
 }
 
-// SaveResetToken guarda un token de reset de contraseña
+// SaveResetToken saves a password reset token
 func (r *PostgresPasswordResetRepository) SaveResetToken(ctx context.Context, token auth.PasswordResetToken) error {
 	query := `
 		INSERT INTO password_reset_tokens (
@@ -39,7 +39,7 @@ func (r *PostgresPasswordResetRepository) SaveResetToken(ctx context.Context, to
 	return nil
 }
 
-// FindResetToken busca un token de reset por su valor
+// FindResetToken finds a reset token by its value
 func (r *PostgresPasswordResetRepository) FindResetToken(ctx context.Context, tokenValue string) (*auth.PasswordResetToken, error) {
 	query := `
 		SELECT 
@@ -59,7 +59,7 @@ func (r *PostgresPasswordResetRepository) FindResetToken(ctx context.Context, to
 	return &token, nil
 }
 
-// ConsumeResetToken marca un token como usado
+// ConsumeResetToken marks a token as used
 func (r *PostgresPasswordResetRepository) ConsumeResetToken(ctx context.Context, tokenValue string) error {
 	query := `
 		UPDATE password_reset_tokens 
@@ -83,7 +83,7 @@ func (r *PostgresPasswordResetRepository) ConsumeResetToken(ctx context.Context,
 	return nil
 }
 
-// CleanExpiredResetTokens limpia tokens expirados o usados (para mantenimiento)
+// CleanExpiredResetTokens cleans up expired or used tokens (for maintenance)
 func (r *PostgresPasswordResetRepository) CleanExpiredResetTokens(ctx context.Context) error {
 	query := `
 		DELETE FROM password_reset_tokens 
@@ -97,7 +97,7 @@ func (r *PostgresPasswordResetRepository) CleanExpiredResetTokens(ctx context.Co
 	return nil
 }
 
-// RevokeAllUserResetTokens revoca todos los tokens de reset de un usuario
+// RevokeAllUserResetTokens revokes all reset tokens for a user
 func (r *PostgresPasswordResetRepository) RevokeAllUserResetTokens(ctx context.Context, userID string) error {
 	query := `
 		UPDATE password_reset_tokens 
@@ -113,7 +113,7 @@ func (r *PostgresPasswordResetRepository) RevokeAllUserResetTokens(ctx context.C
 	return nil
 }
 
-// CountActiveResetTokens cuenta los tokens activos de reset de un usuario
+// CountActiveResetTokens counts active reset tokens for a user
 func (r *PostgresPasswordResetRepository) CountActiveResetTokens(ctx context.Context, userID string) (int, error) {
 	query := `
 		SELECT COUNT(*) 
@@ -130,7 +130,7 @@ func (r *PostgresPasswordResetRepository) CountActiveResetTokens(ctx context.Con
 	return count, nil
 }
 
-// HasRecentResetToken verifica si un usuario tiene un token reciente (anti-spam)
+// HasRecentResetToken checks if a user has a recent token (anti-spam)
 func (r *PostgresPasswordResetRepository) HasRecentResetToken(ctx context.Context, userID string, withinMinutes int) (bool, error) {
 	query := `
 		SELECT EXISTS(
