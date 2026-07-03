@@ -9,6 +9,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
+	"github.com/Abraxas-365/manifesto/internal/iam/role"
 
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
@@ -28,6 +29,7 @@ type AuthHandlers struct {
 	sessionRepo    SessionRepository
 	stateManager   StateManager
 	invitationRepo invitation.InvitationRepository
+	roleRepo       role.RoleRepository
 	auditService   AuditService
 	scopeResolver  ScopeResolver
 	config         *config.Config
@@ -43,6 +45,7 @@ func NewAuthHandlers(
 	sessionRepo SessionRepository,
 	stateManager StateManager,
 	invitationRepo invitation.InvitationRepository,
+	roleRepo role.RoleRepository,
 	auditService AuditService,
 	scopeResolver ScopeResolver,
 	config *config.Config,
@@ -56,6 +59,7 @@ func NewAuthHandlers(
 		sessionRepo:    sessionRepo,
 		stateManager:   stateManager,
 		invitationRepo: invitationRepo,
+		roleRepo:       roleRepo,
 		auditService:   auditService,
 		scopeResolver:  scopeResolver,
 		config:         config,
@@ -568,6 +572,7 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 	var tenantEntity *tenant.Tenant
 	var invitationToken string
 	var invitationScopes []string
+	var invitationRoleID *string
 	var err error
 
 	// Check if there's an invitation token
@@ -594,6 +599,7 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 		}
 
 		invitationScopes = inv.GetScopes()
+		invitationRoleID = inv.GetRoleID()
 
 		tenantEntity, err = ah.tenantRepo.FindByID(ctx, inv.GetTenantID())
 		if err != nil {
@@ -606,15 +612,42 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 	// Account linking: look up existing user
 	existingUser, err := ah.userRepo.FindByEmail(ctx, userInfo.Email, tenantEntity.ID)
 	if err == nil {
+		needsSave := false
+
 		if existingUser.OAuthProvider != provider || existingUser.OAuthProviderID != userInfo.ID {
 			existingUser.LinkOAuth(provider, userInfo.ID)
 			existingUser.UpdateProfile(userInfo.Name, userInfo.Picture)
+			needsSave = true
+			ah.auditService.LogAccountLinked(ctx, existingUser.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), ip)
+		}
 
+		// Apply invitation scopes to existing user
+		for _, scope := range invitationScopes {
+			if !existingUser.HasScope(scope) {
+				existingUser.AddScope(scope)
+				needsSave = true
+			}
+		}
+
+		if needsSave {
 			if err := ah.userRepo.Save(ctx, *existingUser); err != nil {
 				return nil, nil, err
 			}
-			ah.auditService.LogAccountLinked(ctx, existingUser.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), ip)
 		}
+
+		// Assign role from invitation
+		ah.assignInvitationRole(ctx, existingUser.ID, tenantEntity.ID, invitationRoleID)
+
+		// Accept invitation for account linking
+		if invitationToken != "" {
+			inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
+			if err == nil {
+				if err := inv.Accept(existingUser.ID); err == nil {
+					ah.invitationRepo.Save(ctx, *inv)
+				}
+			}
+		}
+
 		return existingUser, tenantEntity, nil
 	}
 
@@ -667,6 +700,9 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 	// Audit: account created
 	ah.auditService.LogAccountCreated(ctx, newUser.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), ip)
 
+	// Assign role from invitation
+	ah.assignInvitationRole(ctx, newUser.ID, tenantEntity.ID, invitationRoleID)
+
 	// Accept the invitation
 	if invitationToken != "" {
 		inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
@@ -682,6 +718,20 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 
 func (ah *AuthHandlers) resolveScopes(ctx context.Context, userEntity *user.User) []string {
 	return ResolveScopes(ctx, ah.scopeResolver, userEntity.ID, userEntity.TenantID, userEntity.Scopes)
+}
+
+// assignInvitationRole assigns the invitation's role to the user if present
+func (ah *AuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *string) {
+	if roleID == nil || *roleID == "" {
+		return
+	}
+	userRole := role.UserRole{
+		UserID:     userID,
+		RoleID:     *roleID,
+		TenantID:   tenantID,
+		AssignedAt: time.Now().UTC(),
+	}
+	ah.roleRepo.AssignToUser(ctx, userRole)
 }
 
 // Helper functions

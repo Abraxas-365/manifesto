@@ -37,7 +37,7 @@ func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) 
 
 	query := `
 		SELECT
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		FROM invitations
 		WHERE id = $1`
@@ -61,7 +61,7 @@ func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token st
 
 	query := `
 		SELECT
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		FROM invitations
 		WHERE token = $1`
@@ -84,7 +84,7 @@ func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email st
 
 	query := `
 		SELECT
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		FROM invitations
 		WHERE email = $1 AND tenant_id = $2
@@ -112,7 +112,7 @@ func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, e
 
 	query := `
 		SELECT
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		FROM invitations
 		WHERE email = $1 AND tenant_id = $2 AND status = 'PENDING' AND expires_at > NOW()
@@ -138,7 +138,7 @@ func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantI
 
 	query := `
 		SELECT
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		FROM invitations
 		WHERE tenant_id = $1
@@ -166,7 +166,7 @@ func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, 
 
 	query := `
 		SELECT
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		FROM invitations
 		WHERE tenant_id = $1 AND status = 'PENDING' AND expires_at > NOW()
@@ -194,7 +194,7 @@ func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invi
 
 	query := `
 		SELECT
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		FROM invitations
 		WHERE status = 'PENDING' AND expires_at < NOW()`
@@ -234,10 +234,10 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 
 	query := `
 		INSERT INTO invitations (
-			id, tenant_id, email, token, scopes, status, invited_by,
+			id, tenant_id, email, token, scopes, role_id, status, invited_by,
 			expires_at, accepted_at, accepted_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 		)`
 
 	_, err := executor.ExecContext(ctx, query,
@@ -246,6 +246,7 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 		inv.Email,
 		inv.Token,
 		pq.Array(inv.Scopes),
+		inv.RoleID,
 		inv.Status,
 		inv.InvitedBy,
 		inv.ExpiresAt,
@@ -279,16 +280,18 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 			email = $1,
 			status = $2,
 			scopes = $3,
-			expires_at = $4,
-			accepted_at = $5,
-			accepted_by = $6,
-			updated_at = $7
-		WHERE id = $8`
+			role_id = $4,
+			expires_at = $5,
+			accepted_at = $6,
+			accepted_by = $7,
+			updated_at = $8
+		WHERE id = $9`
 
 	result, err := executor.ExecContext(ctx, query,
 		inv.Email,
 		inv.Status,
 		pq.Array(inv.Scopes),
+		inv.RoleID,
 		inv.ExpiresAt,
 		inv.AcceptedAt,
 		inv.AcceptedBy,

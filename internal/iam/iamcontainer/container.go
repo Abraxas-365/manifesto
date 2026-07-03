@@ -144,10 +144,13 @@ func New(deps Deps) *Container {
 		passwordSvc,
 	)
 
+	roleRepo := roleinfra.NewPostgresRoleRepository(deps.DB)
+
 	c.InvitationService = invitationsrv.NewInvitationService(
 		invitationRepo,
 		userRepo,
 		tenantRepo,
+		roleRepo,
 		deps.InvitationNotifier,
 		&deps.Cfg.Auth.Invitation,
 	)
@@ -163,8 +166,6 @@ func New(deps Deps) *Container {
 		deps.OTPNotifier,
 		&deps.Cfg.Auth.OTP,
 	)
-
-	roleRepo := roleinfra.NewPostgresRoleRepository(deps.DB)
 
 	c.RoleService = rolesrv.NewRoleService(
 		roleRepo,
@@ -207,6 +208,7 @@ func New(deps Deps) *Container {
 		sessionRepo,
 		stateManager,
 		invitationRepo,
+		roleRepo,
 		auditService,
 		c.RoleService,
 		deps.Cfg,
@@ -219,6 +221,7 @@ func New(deps Deps) *Container {
 		tokenRepo,
 		sessionRepo,
 		invitationRepo,
+		roleRepo,
 		c.OTPService,
 		auditService,
 		c.RoleService,

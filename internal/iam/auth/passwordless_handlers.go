@@ -10,6 +10,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp/otpsrv"
+	"github.com/Abraxas-365/manifesto/internal/iam/role"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -25,6 +26,7 @@ type PasswordlessAuthHandlers struct {
 	tokenRepo      TokenRepository
 	sessionRepo    SessionRepository
 	invitationRepo invitation.InvitationRepository
+	roleRepo       role.RoleRepository
 	otpService     *otpsrv.OTPService
 	auditService   AuditService
 	scopeResolver  ScopeResolver
@@ -38,6 +40,7 @@ func NewPasswordlessAuthHandlers(
 	tokenRepo TokenRepository,
 	sessionRepo SessionRepository,
 	invitationRepo invitation.InvitationRepository,
+	roleRepo role.RoleRepository,
 	otpService *otpsrv.OTPService,
 	auditService AuditService,
 	scopeResolver ScopeResolver,
@@ -50,6 +53,7 @@ func NewPasswordlessAuthHandlers(
 		tokenRepo:      tokenRepo,
 		sessionRepo:    sessionRepo,
 		invitationRepo: invitationRepo,
+		roleRepo:       roleRepo,
 		otpService:     otpService,
 		auditService:   auditService,
 		scopeResolver:  scopeResolver,
@@ -59,6 +63,20 @@ func NewPasswordlessAuthHandlers(
 
 func (h *PasswordlessAuthHandlers) resolveScopes(ctx context.Context, userEntity *user.User) []string {
 	return ResolveScopes(ctx, h.scopeResolver, userEntity.ID, userEntity.TenantID, userEntity.Scopes)
+}
+
+// assignInvitationRole assigns the invitation's role to the user if present
+func (h *PasswordlessAuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *string) {
+	if roleID == nil || *roleID == "" {
+		return
+	}
+	userRole := role.UserRole{
+		UserID:     userID,
+		RoleID:     *roleID,
+		TenantID:   tenantID,
+		AssignedAt: time.Now().UTC(),
+	}
+	h.roleRepo.AssignToUser(ctx, userRole)
 }
 
 // RegisterRoutes registers passwordless auth routes
@@ -252,11 +270,26 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 		if existingUser.HasOAuth() {
 			existingUser.EnableOTP()
 
-			// Update user to enable OTP
+			// Apply invitation scopes to existing user
+			for _, scope := range inv.GetScopes() {
+				if !existingUser.HasScope(scope) {
+					existingUser.AddScope(scope)
+				}
+			}
+
+			// Update user to enable OTP and apply scopes
 			if err := h.userRepo.Save(c.Context(), *existingUser); err != nil {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 					"error": "Failed to link OTP to existing account",
 				})
+			}
+
+			// Assign role from invitation
+			h.assignInvitationRole(c.Context(), existingUser.ID, tenantID, inv.GetRoleID())
+
+			// Mark invitation as accepted
+			if err := inv.Accept(existingUser.ID); err == nil {
+				h.invitationRepo.Save(c.Context(), *inv)
 			}
 
 			// Audit: OTP linked to existing OAuth account
@@ -327,6 +360,9 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 
 	// Audit: account created via OTP
 	h.auditService.LogAccountCreated(c.Context(), newUser.ID, tenantID, "otp", c.IP())
+
+	// Assign role from invitation
+	h.assignInvitationRole(c.Context(), newUser.ID, tenantID, inv.GetRoleID())
 
 	// 10. Mark invitation as accepted
 	if err := inv.Accept(newUser.ID); err == nil {

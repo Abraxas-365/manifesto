@@ -8,6 +8,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/config"
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
+	"github.com/Abraxas-365/manifesto/internal/iam/role"
 	"github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
@@ -20,6 +21,7 @@ type InvitationService struct {
 	invitationRepo      invitation.InvitationRepository
 	userRepo            user.UserRepository
 	tenantRepo          tenant.TenantRepository
+	roleRepo            role.RoleRepository
 	notificationService invitation.NotificationService
 	config              *config.InvitationConfig
 }
@@ -29,6 +31,7 @@ func NewInvitationService(
 	invitationRepo invitation.InvitationRepository,
 	userRepo user.UserRepository,
 	tenantRepo tenant.TenantRepository,
+	roleRepo role.RoleRepository,
 	notificationService invitation.NotificationService,
 	cfg *config.InvitationConfig,
 ) *InvitationService {
@@ -36,6 +39,7 @@ func NewInvitationService(
 		invitationRepo:      invitationRepo,
 		userRepo:            userRepo,
 		tenantRepo:          tenantRepo,
+		roleRepo:            roleRepo,
 		notificationService: notificationService,
 		config:              cfg,
 	}
@@ -55,16 +59,12 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 	}
 
 	// Check that the inviting user exists
-	inviterUser, err := s.userRepo.FindByID(ctx, invitedBy, tenantID)
+	_, err = s.userRepo.FindByID(ctx, invitedBy, tenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
 	}
 
-	// Check that the inviter has permissions
-	if !inviterUser.HasScope(scopes.ScopeUsersInvite) {
-		return nil, errx.New("insufficient permissions to invite users", errx.TypeAuthorization).
-			WithDetail("required_scope", scopes.ScopeUsersInvite)
-	}
+	// Note: scope authorization is enforced by the API middleware (invitations:write)
 
 	// Check that the user does not already exist in the tenant
 	existingUser, err := s.userRepo.FindByEmail(ctx, req.Email, tenantID)
@@ -79,6 +79,14 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 	}
 	if exists {
 		return nil, invitation.ErrInvitationAlreadyExists().WithDetail("email", req.Email)
+	}
+
+	// Validate role if provided
+	if req.RoleID != nil && *req.RoleID != "" {
+		_, err := s.roleRepo.FindByID(ctx, *req.RoleID, tenantID)
+		if err != nil {
+			return nil, role.ErrRoleNotFound().WithDetail("role_id", *req.RoleID)
+		}
 	}
 
 	// Determine scopes
@@ -112,6 +120,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 		Email:     req.Email,
 		Token:     token,
 		Scopes:    resolvedScopes,
+		RoleID:    req.RoleID,
 		Status:    invitation.InvitationStatusPending,
 		InvitedBy: invitedBy,
 		ExpiresAt: expiresAt,

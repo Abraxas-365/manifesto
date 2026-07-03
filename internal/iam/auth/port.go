@@ -72,6 +72,7 @@ type Invitation interface {
 	GetID() string
 	GetTenantID() kernel.TenantID
 	GetEmail() string
+	GetRoleID() *string
 	CanBeAccepted() bool
 	IsExpired() bool
 	Accept(userID kernel.UserID) error

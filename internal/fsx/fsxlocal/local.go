@@ -222,6 +222,13 @@ func (fs *LocalFileSystem) fullPath(path string) string {
 	return filepath.Join(fs.basePath, path)
 }
 
+// AbsPath returns the absolute on-disk path for a path relative to the
+// filesystem's base directory. It lets callers (e.g. the skill materializer)
+// detect a local filesystem and use the real path directly instead of copying.
+func (fs *LocalFileSystem) AbsPath(path string) string {
+	return fs.fullPath(path)
+}
+
 // detectContentType detects MIME type from file extension
 func detectContentType(path string) string {
 	ext := filepath.Ext(path)

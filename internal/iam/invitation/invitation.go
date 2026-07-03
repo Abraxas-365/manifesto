@@ -31,7 +31,8 @@ type Invitation struct {
 	TenantID   kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
 	Email      string           `db:"email" json:"email"`
 	Token      string           `db:"token" json:"token"`
-	Scopes     []string         `db:"scopes" json:"scopes"` // ✅ Changed from RoleID
+	Scopes     []string         `db:"scopes" json:"scopes"`
+	RoleID     *string          `db:"role_id" json:"role_id,omitempty"` // Optional role to assign on accept
 	Status     InvitationStatus `db:"status" json:"status"`
 	InvitedBy  kernel.UserID    `db:"invited_by" json:"invited_by"`
 	ExpiresAt  time.Time        `db:"expires_at" json:"expires_at"`
@@ -67,6 +68,11 @@ func (i *Invitation) GetEmail() string {
 // GetScopes returns the invitation scopes
 func (i *Invitation) GetScopes() []string {
 	return i.Scopes
+}
+
+// GetRoleID returns the invitation role ID
+func (i *Invitation) GetRoleID() *string {
+	return i.RoleID
 }
 
 // IsValid checks whether the invitation is valid
@@ -145,6 +151,7 @@ type InvitationDetailsDTO struct {
 	Email      string           `json:"email"`
 	Status     InvitationStatus `json:"status"`
 	Scopes     []string         `json:"scopes"`
+	RoleID     *string          `json:"role_id,omitempty"`
 	ExpiresAt  time.Time        `json:"expires_at"`
 	AcceptedAt *time.Time       `json:"accepted_at,omitempty"`
 	CreatedAt  time.Time        `json:"created_at"`
@@ -158,6 +165,7 @@ func (i *Invitation) ToDTO() InvitationDetailsDTO {
 		Email:      i.Email,
 		Status:     i.Status,
 		Scopes:     i.Scopes,
+		RoleID:     i.RoleID,
 		ExpiresAt:  i.ExpiresAt,
 		AcceptedAt: i.AcceptedAt,
 		CreatedAt:  i.CreatedAt,
@@ -172,6 +180,7 @@ func (i *Invitation) ToDTO() InvitationDetailsDTO {
 type CreateInvitationRequest struct {
 	Email     string   `json:"email" validate:"required,email"`
 	Scopes    []string `json:"scopes,omitempty"`
+	RoleID    *string  `json:"role_id,omitempty"`    // Optional role to assign on accept
 	ExpiresIn *int     `json:"expires_in,omitempty"` // Days until expiration (default: 7)
 }
 
