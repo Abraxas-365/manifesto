@@ -4,8 +4,8 @@
 // Grep) are identical — only the FileSystem changes — and a single router
 // Provider fans out to OpenAI or Anthropic based on agent.Model.
 //
-// There is no remote shell for S3, so we register the file tools directly and
-// omit the Bash tool (which needs an exec.Executor).
+// There is no remote shell for S3, so we use builtins.Files (file tools only)
+// and omit the Bash tool (which needs an exec.Executor).
 //
 // Run against real AWS (uses the default credential chain — env vars, shared
 // config, SSO, IAM role). Provide either or both provider keys:
@@ -37,13 +37,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/anthropic"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/router"
-	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
-	"github.com/Abraxas-365/manifesto/internal/fsx"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxs3"
 )
 
@@ -89,7 +88,10 @@ func run() error {
 	// local directory. Everything below is identical to the local example.
 	fs := fsxs3.NewS3FileSystem(s3Client, bucket, os.Getenv("S3_PREFIX"))
 
-	agent := harness.New(provider, s3FileRegistry(fs))
+	// Storage-only: S3 has no shell, so we register the file tools and no Bash.
+	// builtins.Files makes that impossible to get wrong — there is no executor to
+	// diverge from the store.
+	agent := harness.New(provider, builtins.Files(fsxstore.New(fs)))
 	agent.System = "You are a coding assistant. The files you work with live in an S3 bucket, " +
 		"exposed through the standard file tools. Use them to inspect and edit files."
 	agent.Model = defaultModel
@@ -144,15 +146,3 @@ func buildRouter() (llm.Provider, string, error) {
 	return r, defaultModel, nil
 }
 
-// s3FileRegistry registers the file tools over the given FileSystem. It mirrors
-// builtins.Default but drops Bash, since S3 has no shell to execute against.
-func s3FileRegistry(fs fsx.FileSystem) *tool.Registry {
-	r := tool.NewRegistry()
-	r.Register(&builtins.Read{FS: fs})
-	r.Register(&builtins.Write{FS: fs})
-	r.Register(&builtins.Edit{FS: fs})
-	r.Register(&builtins.List{FS: fs})
-	r.Register(&builtins.Glob{FS: fs})
-	r.Register(&builtins.Grep{FS: fs})
-	return r
-}

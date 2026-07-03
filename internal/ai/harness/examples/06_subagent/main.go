@@ -21,6 +21,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/router"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/subagent"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -51,8 +52,9 @@ func run() error {
 		return err
 	}
 	ex := exec.NewLocalExecutor(".")
+	store := fsxstore.New(fs)
 
-	registry := builtins.Default(fs, ex)
+	registry := builtins.Default(store, ex)
 
 	// Register the Task tool. AllowedModels renders as an enum on the "model"
 	// parameter and is validated at call time. NewAgent runs once per call, so
@@ -60,7 +62,7 @@ func run() error {
 	registry.Register(&subagent.Tool{
 		AllowedModels: models,
 		NewAgent: func() *harness.Agent {
-			sub := harness.New(r, builtins.Default(fs, ex))
+			sub := harness.New(r, builtins.Default(store, ex))
 			sub.System = "You are a focused subagent. Return only the final answer."
 			sub.Model = "gpt-4o-mini"
 			sub.EnableRetry()

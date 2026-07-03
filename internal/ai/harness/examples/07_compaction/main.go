@@ -18,6 +18,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -41,7 +42,7 @@ func run() error {
 	ex := exec.NewLocalExecutor(".")
 
 	provider := openai.New(key)
-	agent := harness.New(provider, builtins.Default(fs, ex))
+	agent := harness.New(provider, builtins.Default(fsxstore.New(fs), ex))
 	agent.System = "You are a helpful assistant."
 	agent.Model = "gpt-4o"
 

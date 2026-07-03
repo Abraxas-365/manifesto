@@ -19,6 +19,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -79,7 +80,7 @@ func run() error {
 	}
 	ex := exec.NewLocalExecutor(".")
 
-	registry := builtins.Default(fs, ex)
+	registry := builtins.Default(fsxstore.New(fs), ex)
 	registry.Register(WordCount{}) // <- your tool, alongside the builtins
 
 	agent := harness.New(openai.New(key), registry)

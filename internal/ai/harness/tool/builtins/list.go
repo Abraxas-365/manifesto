@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
-	"github.com/Abraxas-365/manifesto/internal/fsx"
 )
 
 // List lists the entries of a directory.
 type List struct {
-	FS fsx.FileSystem
+	FS fsys.Store
 }
 
 type listInput struct {

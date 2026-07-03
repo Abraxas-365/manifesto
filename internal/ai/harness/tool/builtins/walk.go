@@ -4,7 +4,7 @@ import (
 	"context"
 	"path"
 
-	"github.com/Abraxas-365/manifesto/internal/fsx"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 )
 
 // MaxWalkFiles bounds a recursive walk to avoid runaway traversals.
@@ -13,7 +13,7 @@ const MaxWalkFiles = 20000
 // walkFiles recursively lists file paths under root (relative to root, using
 // forward slashes). Directories themselves are not emitted. The walk stops once
 // maxWalkFiles paths are collected.
-func walkFiles(ctx context.Context, fs fsx.FileSystem, root string) ([]string, error) {
+func walkFiles(ctx context.Context, fs fsys.Store, root string) ([]string, error) {
 	var files []string
 	queue := []string{root}
 

@@ -49,15 +49,22 @@ func (t *Bash) deniedCommands() []string {
 }
 
 type bashInput struct {
-	Command string       `json:"command"`
-	Timeout tool.FlexInt `json:"timeout,omitempty"` // milliseconds
+	Command         string       `json:"command"`
+	Timeout         tool.FlexInt `json:"timeout,omitempty"` // milliseconds
+	RunInBackground bool         `json:"run_in_background,omitempty"`
 }
 
 func (t *Bash) Name() string { return "Bash" }
 
 func (t *Bash) Description() string {
-	return "Execute a shell command and return its combined stdout/stderr. " +
+	desc := "Execute a shell command and return its combined stdout/stderr. " +
 		"Optionally set timeout in milliseconds (default 120000)."
+	if _, ok := t.Exec.(exec.BackgroundExecutor); ok {
+		desc += " Set run_in_background=true to launch a long-lived command " +
+			"(e.g. a server) detached; it returns a shell ID to use with " +
+			"BashOutput and KillShell instead of blocking."
+	}
+	return desc
 }
 
 func (t *Bash) InputSchema() json.RawMessage {
@@ -65,7 +72,8 @@ func (t *Bash) InputSchema() json.RawMessage {
 		"type": "object",
 		"properties": {
 			"command": {"type": "string", "description": "The shell command to run"},
-			"timeout": {"type": "number", "description": "Timeout in milliseconds (default 120000)"}
+			"timeout": {"type": "number", "description": "Timeout in milliseconds (default 120000)"},
+			"run_in_background": {"type": "boolean", "description": "Launch detached and return a shell ID instead of blocking (for servers and long-lived processes)"}
 		},
 		"required": ["command"]
 	}`)
@@ -91,6 +99,19 @@ func (t *Bash) Execute(ctx context.Context, input json.RawMessage) (*tool.Result
 	var opts exec.RunOptions
 	if ms := in.Timeout.Value(0); ms > 0 {
 		opts.Timeout = time.Duration(ms) * time.Millisecond
+	}
+
+	if in.RunInBackground {
+		bg, ok := t.Exec.(exec.BackgroundExecutor)
+		if !ok {
+			return &tool.Result{Content: "This executor does not support background commands.", IsError: true}, nil
+		}
+		id, err := bg.Start(ctx, in.Command, opts)
+		if err != nil {
+			return &tool.Result{Content: err.Error(), IsError: true}, nil
+		}
+		return &tool.Result{Content: fmt.Sprintf(
+			"Started background shell %s. Use BashOutput with this ID to read output, or KillShell to stop it.", id)}, nil
 	}
 
 	res, err := t.Exec.Run(ctx, in.Command, opts)

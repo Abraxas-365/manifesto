@@ -7,15 +7,15 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
-	"github.com/Abraxas-365/manifesto/internal/fsx"
 )
 
 // Glob finds files matching a glob pattern via a recursive filesystem walk.
 // It supports `*` and `?` within a path segment and `**` to match across any
 // number of segments.
 type Glob struct {
-	FS fsx.FileSystem
+	FS fsys.Store
 }
 
 type globInput struct {

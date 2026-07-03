@@ -16,6 +16,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -41,7 +42,7 @@ func run() error {
 	ex := exec.NewLocalExecutor(".")
 
 	// builtins.Default wires Read, Write, Edit, List, Glob, Grep, Bash.
-	registry := builtins.Default(fs, ex)
+	registry := builtins.Default(fsxstore.New(fs), ex)
 
 	agent := harness.New(openai.New(key), registry)
 	agent.System = "You are a helpful coding assistant. Use the tools to inspect files."

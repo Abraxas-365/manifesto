@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
-	"github.com/Abraxas-365/manifesto/internal/fsx"
 )
 
 // MaxGrepMatches bounds the number of reported matches.
@@ -17,7 +17,7 @@ const MaxGrepMatches = 500
 
 // Grep searches file contents for a regular expression.
 type Grep struct {
-	FS fsx.FileSystem
+	FS fsys.Store
 }
 
 type grepInput struct {

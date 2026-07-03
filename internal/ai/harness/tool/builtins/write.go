@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
-	"github.com/Abraxas-365/manifesto/internal/fsx"
 )
 
 // Write creates or overwrites a file.
 type Write struct {
-	FS fsx.FileSystem
+	FS fsys.Store
 }
 
 type writeInput struct {
@@ -51,7 +51,7 @@ func (t *Write) Execute(ctx context.Context, input json.RawMessage) (*tool.Resul
 	}
 
 	if dir := path.Dir(in.FilePath); dir != "" && dir != "." {
-		if err := t.FS.CreateDir(ctx, dir); err != nil {
+		if err := t.FS.MkdirAll(ctx, dir); err != nil {
 			return &tool.Result{Content: fmt.Sprintf("Error creating directory: %v", err), IsError: true}, nil
 		}
 	}

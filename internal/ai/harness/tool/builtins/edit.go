@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
-	"github.com/Abraxas-365/manifesto/internal/fsx"
 )
 
 // Edit replaces an exact string in a file.
 type Edit struct {
-	FS fsx.FileSystem
+	FS fsys.Store
 }
 
 type editInput struct {

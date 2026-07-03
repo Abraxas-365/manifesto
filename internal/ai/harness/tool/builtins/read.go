@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
-	"github.com/Abraxas-365/manifesto/internal/fsx"
 )
 
 // MaxReadBytes rejects whole-file reads larger than this before loading.
@@ -16,7 +16,7 @@ const MaxReadBytes = 256 * 1024
 
 // Read reads file contents with an optional line range.
 type Read struct {
-	FS fsx.FileSystem
+	FS fsys.Store
 }
 
 type readInput struct {

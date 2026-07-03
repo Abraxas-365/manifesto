@@ -3,15 +3,13 @@ package builtins
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/Abraxas-365/manifesto/internal/fsx"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 )
 
-// memFS is a minimal in-memory fsx.FileSystem for offline tool tests.
+// memFS is a minimal in-memory fsys.Store for offline tool tests.
 type memFS struct {
 	files map[string][]byte
 }
@@ -21,30 +19,26 @@ func newMemFS() *memFS { return &memFS{files: map[string][]byte{}} }
 func (m *memFS) ReadFile(_ context.Context, path string) ([]byte, error) {
 	data, ok := m.files[path]
 	if !ok {
-		return nil, fsErr("not found: " + path)
+		return nil, fsys.ErrNotExist
 	}
 	return data, nil
 }
 
-func (m *memFS) ReadFileStream(context.Context, string) (io.ReadCloser, error) {
-	return nil, fsErr("unsupported")
-}
-
-func (m *memFS) Stat(_ context.Context, path string) (fsx.FileInfo, error) {
+func (m *memFS) Stat(_ context.Context, path string) (fsys.FileInfo, error) {
 	data, ok := m.files[path]
 	if !ok {
-		return fsx.FileInfo{}, fsErr("not found: " + path)
+		return fsys.FileInfo{}, fsys.ErrNotExist
 	}
-	return fsx.FileInfo{Name: path, Size: int64(len(data)), ModTime: time.Now()}, nil
+	return fsys.FileInfo{Name: path, Size: int64(len(data))}, nil
 }
 
-func (m *memFS) List(_ context.Context, path string) ([]fsx.FileInfo, error) {
+func (m *memFS) List(_ context.Context, path string) ([]fsys.FileInfo, error) {
 	prefix := strings.TrimSuffix(path, "/") + "/"
 	if path == "." || path == "" {
 		prefix = ""
 	}
 	seen := map[string]bool{}
-	var out []fsx.FileInfo
+	var out []fsys.FileInfo
 	for f := range m.files {
 		rel, ok := strings.CutPrefix(f, prefix)
 		if !ok {
@@ -55,18 +49,13 @@ func (m *memFS) List(_ context.Context, path string) ([]fsx.FileInfo, error) {
 			dir := rel[:i]
 			if !seen[dir] {
 				seen[dir] = true
-				out = append(out, fsx.FileInfo{Name: dir, IsDir: true})
+				out = append(out, fsys.FileInfo{Name: dir, IsDir: true})
 			}
 			continue
 		}
-		out = append(out, fsx.FileInfo{Name: rel, Size: int64(len(m.files[f]))})
+		out = append(out, fsys.FileInfo{Name: rel, Size: int64(len(m.files[f]))})
 	}
 	return out, nil
-}
-
-func (m *memFS) Exists(_ context.Context, path string) (bool, error) {
-	_, ok := m.files[path]
-	return ok, nil
 }
 
 func (m *memFS) WriteFile(_ context.Context, path string, data []byte) error {
@@ -74,18 +63,7 @@ func (m *memFS) WriteFile(_ context.Context, path string, data []byte) error {
 	return nil
 }
 
-func (m *memFS) WriteFileStream(context.Context, string, io.Reader) error {
-	return fsErr("unsupported")
-}
-func (m *memFS) CreateDir(context.Context, string) error         { return nil }
-func (m *memFS) DeleteFile(_ context.Context, path string) error { delete(m.files, path); return nil }
-func (m *memFS) DeleteDir(context.Context, string, bool) error   { return nil }
-
-func (m *memFS) Join(elem ...string) string { return strings.Join(elem, "/") }
-
-type fsErr string
-
-func (e fsErr) Error() string { return string(e) }
+func (m *memFS) MkdirAll(context.Context, string) error { return nil }
 
 // --- matchGlob ---
 

@@ -23,4 +23,11 @@ var (
 		http.StatusRequestTimeout,
 		"Command timed out",
 	)
+
+	ErrShellNotFound = Registry.Register(
+		"SHELL_NOT_FOUND",
+		errx.TypeNotFound,
+		http.StatusNotFound,
+		"Background shell not found",
+	)
 )

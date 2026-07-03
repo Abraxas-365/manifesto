@@ -17,6 +17,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -39,7 +40,7 @@ func run() error {
 	}
 	ex := exec.NewLocalExecutor(".")
 
-	registry := builtins.Default(fs, ex)
+	registry := builtins.Default(fsxstore.New(fs), ex)
 
 	// Defer two builtins. The hint (2nd arg) is a short teaser used both in the
 	// reminder and for ToolSearch keyword matching — keep it to a few words.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -12,10 +13,14 @@ import (
 // DefaultTimeout caps a command's run time when RunOptions.Timeout is zero.
 const DefaultTimeout = 120 * time.Second
 
-// LocalExecutor runs commands on the local machine via `bash -c`.
+// LocalExecutor runs commands on the local machine via `bash -c`. It also
+// implements BackgroundExecutor for detached, long-lived commands.
 type LocalExecutor struct {
 	// DefaultWorkDir is used when RunOptions.WorkDir is empty.
 	DefaultWorkDir string
+
+	// bg holds detached shells started via Start, keyed by shell ID.
+	bg sync.Map
 }
 
 // NewLocalExecutor creates a LocalExecutor rooted at workDir.
