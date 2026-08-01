@@ -16,7 +16,7 @@ import "github.com/Abraxas-365/manifesto/internal/ai/harness"
 fs, _ := fsxlocal.NewLocalFileSystem(".")
 ex := exec.NewLocalExecutor(".")
 
-registry := builtins.Default(fsxstore.New(fs), ex) // Read, Write, Edit, List, Glob, Grep, Bash
+registry, _ := builtins.Default(fsxstore.New(fs), ex) // Read, Write, Edit, List, Glob, Grep, Bash
                                                    // (+ BashOutput, KillShell if ex supports background)
 provider := openai.New(os.Getenv("OPENAI_API_KEY"))
 
@@ -97,12 +97,19 @@ Each is opt-in and composes with the others.
 | **Retry / backoff** | `agent.EnableRetry()` | `llm/retry` |
 | **Model routing** (many models → right provider) | `router.New().Handle("gpt-*", …)` | `llm/router` |
 | **Prompt caching** (Anthropic) | `anthropic.NewWithOptions(key, []Option{anthropic.WithPromptCaching()})` | `llm/anthropic` |
+| **Streaming** | set `agent.Hooks.OnTextDelta` (switches to `ChatStream`) | `harness` |
+| **Thinking / reasoning** | `agent.Reasoning = llm.ReasoningMedium`; deltas via `OnThinkingDelta` | `llm` |
 | **Observability hooks** | `agent.Hooks = harness.Hooks{…}` | `harness` |
-| **Context compaction** | `agent.Compactor = harness.TruncateCompactor{KeepRecent: 20}` | `harness` |
+| **Tool interception** | return `*ToolIntercept` from `OnToolStart` / replace results in `OnToolEnd` | `harness` |
+| **Context compaction** | `agent.Compactor = harness.SummarizeCompactor{Provider: p, Model: m}` (auto micro-compact + overflow recovery included) | `harness` |
 | **Tool search** (defer big schemas) | `registry.SetDeferred(name, hint)` + `agent.EnableToolSearch()` | `toolsearch` |
 | **Skills** (on-demand instruction sets) | `registry.Register(&skill.Tool{Registry: skReg})` | `skill` |
 | **Subagents** (delegate isolated subtasks) | `registry.Register(&subagent.Tool{NewAgent: …})` | `subagent` |
+| **Background subagents** | `subagent.Tool{Runs: subagent.NewRuns()}` (+ `subagent.WaitTool`) | `subagent` |
+| **Worktree isolation** | `subagent.Tool{Isolator: myIsolator}` — subagent works in an isolated checkout | `subagent` |
+| **Agent profiles** (named blueprints) | `subagent.Tool{Defs: agentdef.NewRegistry(…)}` | `agentdef` |
 | **Todo list** (declarative task tracking) | `registry.Register(&todo.Tool{})` | `todo` |
+| **System prompt + project context** | `prompts.Build(dir, model, extra)`, `prompts.ReadProjectInstructions(dir)` | `prompts` |
 | **Provider options / reasoning** | `agent.Reasoning = llm.ReasoningMedium`; `agent.ProviderOptions = …` | `llm` |
 
 Provider-specific request configuration has three composable layers, each a no-op
@@ -149,6 +156,8 @@ set the relevant API key and `go run` it.
 | [`11_s3`](./examples/11_s3) | Real agent over an S3 bucket, routing to multiple providers — `builtins.Files` (file tools only) + router. |
 | [`12_docker`](./examples/12_docker) | `builtins.FromExecutor` over a `docker exec` executor — file tools and Bash both run inside the container, split-brain impossible. |
 | [`13_fromexecutor`](./examples/13_fromexecutor) | The same one-backend pattern locally (no Docker): a `LocalExecutor` in a scratch dir backs both file tools and Bash. Includes a test that needs no API key. |
+| [`14_plan_mode`](./examples/14_plan_mode) | Plan mode (read-only exploration + plan approval) built purely with custom tools and hooks. |
+| [`15_ask_user`](./examples/15_ask_user) | An AskUser tool for structured multiple-choice questions during execution. |
 
 ## Design principles
 

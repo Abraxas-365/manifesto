@@ -52,14 +52,12 @@ func TestEnableToolSearch_DefersUntilRevealed(t *testing.T) {
 		t.Fatalf("turn 1 system should list deferred Secret: %q", req1.System)
 	}
 
-	// Turn 2 request (after ToolSearch revealed it): Secret now visible, and the
-	// reminder no longer lists it.
+	// Turn 2 request (after ToolSearch revealed it): Secret now visible in tools.
+	// The frozen deferred reminder still lists it (by design — freezing keeps the
+	// system prompt byte-stable for cache efficiency, matching legacy behavior).
 	req2 := p.requests[1]
 	if !containsToolDef(req2.Tools, "Secret") {
 		t.Fatalf("turn 2 should expose revealed Secret: %v", req2.Tools)
-	}
-	if strings.Contains(req2.System, "Secret: does secret things") {
-		t.Fatalf("turn 2 system should no longer list Secret: %q", req2.System)
 	}
 	if secret.executed != 1 {
 		t.Fatalf("Secret should have executed once, got %d", secret.executed)

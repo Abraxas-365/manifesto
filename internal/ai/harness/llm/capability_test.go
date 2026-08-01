@@ -1,6 +1,16 @@
 package llm
 
-import "testing"
+import (
+	"os"
+	"testing"
+
+	"github.com/Abraxas-365/manifesto/internal/models"
+)
+
+func TestMain(m *testing.M) {
+	models.SetGlobalCache(models.NewDefaultCache())
+	os.Exit(m.Run())
+}
 
 func TestCapabilitiesUnknownModelPermissiveDefault(t *testing.T) {
 	c := Capabilities("some-random-model")
@@ -12,28 +22,51 @@ func TestCapabilitiesUnknownModelPermissiveDefault(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesLongestSubstringWins(t *testing.T) {
-	// "gpt-5" is a reasoning family; ensure it matches within a fuller id.
-	c := Capabilities("gpt-5-mini-2025")
+func TestCapabilitiesReasoningModel(t *testing.T) {
+	c := Capabilities("claude-sonnet-5")
 	if !c.SupportsReasoning {
-		t.Errorf("gpt-5 family should support reasoning")
+		t.Errorf("claude-sonnet-5 should support reasoning")
+	}
+	if !c.SupportsTemperature {
+		t.Errorf("claude-sonnet-5 should support temperature")
+	}
+}
+
+func TestCapabilitiesInferredClaude(t *testing.T) {
+	// A claude model not in the cache should be inferred as reasoning-capable.
+	c := Capabilities("claude-sonnet-99-turbo")
+	if !c.SupportsReasoning {
+		t.Errorf("inferred claude model should support reasoning")
+	}
+	if !c.SupportsTemperature {
+		t.Errorf("inferred claude model should support temperature")
+	}
+	if c.ReasoningMap[ReasoningHigh] != "high" {
+		t.Errorf("inferred claude should use effort map, got %q", c.ReasoningMap[ReasoningHigh])
+	}
+}
+
+func TestCapabilitiesInferredOpenAI(t *testing.T) {
+	c := Capabilities("o3-mega-2026")
+	if !c.SupportsReasoning {
+		t.Errorf("inferred o3 model should support reasoning")
 	}
 	if c.SupportsTemperature {
-		t.Errorf("gpt-5 reasoning family should not support temperature")
+		t.Errorf("inferred OpenAI reasoning model should not support temperature")
+	}
+}
+
+func TestClampReasoningAnthropicEffort(t *testing.T) {
+	native, ok := ClampReasoning("claude-sonnet-4-5-20250514", ReasoningHigh)
+	if !ok || native != "high" {
+		t.Errorf("claude-sonnet-4-5 high => (%q,%v), want (\"high\",true)", native, ok)
 	}
 }
 
 func TestClampReasoningOpenAIEffort(t *testing.T) {
-	native, ok := ClampReasoning("o3-mini", ReasoningMedium)
+	native, ok := ClampReasoning("o3", ReasoningMedium)
 	if !ok || native != "medium" {
 		t.Errorf("o3 medium => (%q,%v), want (\"medium\",true)", native, ok)
-	}
-}
-
-func TestClampReasoningAnthropicBudget(t *testing.T) {
-	native, ok := ClampReasoning("claude-sonnet-4-20250514", ReasoningHigh)
-	if !ok || native != "16384" {
-		t.Errorf("claude-sonnet-4 high => (%q,%v), want (\"16384\",true)", native, ok)
 	}
 }
 
@@ -44,7 +77,15 @@ func TestClampReasoningNonReasoningModel(t *testing.T) {
 }
 
 func TestClampReasoningNoneRequested(t *testing.T) {
-	if _, ok := ClampReasoning("o3-mini", ReasoningNone); ok {
+	if _, ok := ClampReasoning("o3", ReasoningNone); ok {
 		t.Errorf("ReasoningNone should never resolve")
+	}
+}
+
+func TestClampReasoningInferredModel(t *testing.T) {
+	// Unknown claude model — should infer reasoning and return effort string.
+	native, ok := ClampReasoning("claude-opus-99", ReasoningMedium)
+	if !ok || native != "medium" {
+		t.Errorf("inferred claude-opus-99 medium => (%q,%v), want (\"medium\",true)", native, ok)
 	}
 }

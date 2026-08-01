@@ -15,21 +15,37 @@ type Tool struct {
     ToolName      string    // default "Task" (DefaultName)
     Desc          string    // default DefaultDescription
     AllowedModels []string  // opcional: restringe el parámetro "model" a este set
+
+    // Piezas opcionales avanzadas (todas nil/zero = desactivadas):
+    Defs           *agentdef.Registry // perfiles con nombre (parámetro "agent")
+    Runs           *Runs              // run_in_background + acción "status"/"stop"
+    Isolator       Isolator           // isolation: "worktree" (checkout aislado)
+    MaxDepth       int                // tope de anidamiento (default DefaultMaxDepth)
+    Spawns         *SpawnCounter      // tope de lanzamientos por sesión
+    MaxConcurrency int                // tope del modo paralelo (parámetro "tasks")
+    OnChildEvent   func(ev ChildEvent) // progreso en vivo de los hijos
 }
 
-type Factory func() *harness.Agent
+type Factory func() *agent.Agent
 ```
 
 `NewAgent` se llama **una vez por invocación**, así que cada subtarea empieza con
 historial limpio. La herramienta implementa `tool.Tool`, se registra como
 cualquier otra.
 
+Además del `prompt` único, el parámetro `tasks` lanza varias subtareas **en
+paralelo** (concurrencia acotada por `MaxConcurrency`) y devuelve todos los
+resultados juntos. Con `Runs` activo, `run_in_background: true` devuelve un id
+inmediatamente; el padre consulta con la acción `status`, espera con la
+herramienta `subagent.WaitTool`, o cancela con `stop`.
+
 ## Uso básico
 
 ```go
 registry.Register(&subagent.Tool{
     NewAgent: func() *harness.Agent {
-        sub := harness.New(provider, builtins.Default(store, ex))
+        subReg, _ := builtins.Default(store, ex)
+        sub := harness.New(provider, subReg)
         sub.System = "Eres un subagente enfocado. Devuelve solo la respuesta final."
         sub.Model = "gpt-4o-mini"
         return sub
@@ -55,7 +71,8 @@ r.HandlePattern("claude-*", anthropic.New(anthropicKey))
 registry.Register(&subagent.Tool{
     AllowedModels: []string{"gpt-4o", "gpt-4o-mini", "claude-sonnet-4-20250514"},
     NewAgent: func() *harness.Agent {
-        sub := harness.New(r, builtins.Default(store, ex))
+        subReg, _ := builtins.Default(store, ex)
+        sub := harness.New(r, subReg)
         sub.System = "Eres un subagente enfocado. Devuelve solo la respuesta final."
         sub.Model = "gpt-4o-mini" // default si el padre no especifica model
         sub.EnableRetry()
@@ -79,6 +96,36 @@ registry.Register(&subagent.Tool{
     NewAgent: newResearchAgent,
 })
 ```
+
+## Perfiles con nombre (agentdef)
+
+Con `Defs` el padre elige un **perfil** por nombre en el parámetro `agent`:
+
+```go
+defs := agentdef.NewRegistry()
+defs.Define(agentdef.Definition{
+    Name:        "researcher",
+    Description: "Investiga a fondo y devuelve un resumen.",
+    SystemPrompt: "Eres un investigador…",
+    Model:       "small",              // o un id concreto; "small" usa Tool.SmallModel
+    Tools:       []string{"Read", "Grep", "Glob"}, // subconjunto permitido
+    MaxTurns:    30,
+})
+defs.Expose("researcher") // solo los perfiles expuestos son seleccionables
+
+registry.Register(&subagent.Tool{NewAgent: newSub, Defs: defs})
+```
+
+`ApplyProfile` recorta el registry del hijo al subconjunto `Tools`, fija modelo,
+thinking y presupuesto de turnos. Los perfiles también pueden cargarse desde
+markdown con frontmatter (`agentdef.ParseMarkdown`).
+
+## Aislamiento por worktree
+
+Con `Isolator` configurado, el padre puede pasar `isolation: "worktree"` y el
+subagente trabaja en un checkout aislado: sus `Read`/`Write`/`Edit`/`Bash`
+se remapean allí (via `tool.WithWorkdir`). Si no cambia nada, el worktree se
+limpia; si hay cambios, se conserva y se reporta la ruta y la rama.
 
 ## Notas
 

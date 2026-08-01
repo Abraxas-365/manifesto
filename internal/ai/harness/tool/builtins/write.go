@@ -23,8 +23,14 @@ type writeInput struct {
 func (t *Write) Name() string { return "Write" }
 
 func (t *Write) Description() string {
-	return "Write content to a file, creating it (and parent directories) or " +
-		"overwriting it if it exists."
+	return `Writes a file to the local filesystem, creating parent directories as needed.
+
+Usage:
+- This tool will overwrite the existing file if there is one at the provided path.
+- If this is an existing file, you MUST use the Read tool first to read the file's contents.
+- Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites.
+- NEVER create documentation files (*.md) or README files unless explicitly requested by the User.
+- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.`
 }
 
 func (t *Write) InputSchema() json.RawMessage {
@@ -38,8 +44,7 @@ func (t *Write) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *Write) IsReadOnly() bool                        { return false }
-func (t *Write) RequiresApproval(_ json.RawMessage) bool { return true }
+func (t *Write) IsReadOnly() bool { return false }
 
 func (t *Write) Execute(ctx context.Context, input json.RawMessage) (*tool.Result, error) {
 	var in writeInput
@@ -49,6 +54,7 @@ func (t *Write) Execute(ctx context.Context, input json.RawMessage) (*tool.Resul
 	if in.FilePath == "" {
 		return &tool.Result{Content: "No file path provided", IsError: true}, nil
 	}
+	in.FilePath = tool.ResolvePath(ctx, in.FilePath)
 
 	if dir := path.Dir(in.FilePath); dir != "" && dir != "." {
 		if err := t.FS.MkdirAll(ctx, dir); err != nil {

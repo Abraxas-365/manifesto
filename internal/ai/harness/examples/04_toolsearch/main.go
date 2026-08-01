@@ -13,11 +13,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
-	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -40,14 +40,14 @@ func run() error {
 	}
 	ex := exec.NewLocalExecutor(".")
 
-	registry := builtins.Default(fsxstore.New(fs), ex)
+	registry, _ := builtins.Default(fsxstore.New(fs), ex)
 
 	// Defer two builtins. The hint (2nd arg) is a short teaser used both in the
 	// reminder and for ToolSearch keyword matching — keep it to a few words.
 	registry.SetDeferred("Grep", "search file contents with a regular expression")
 	registry.SetDeferred("Glob", "find files by glob pattern")
 
-	agent := harness.New(openai.New(key), registry)
+	agent := agent.New(openai.New(key), registry)
 	agent.System = "You are a helpful coding assistant."
 	agent.Model = "gpt-4o"
 

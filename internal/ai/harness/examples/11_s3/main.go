@@ -36,7 +36,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/anthropic"
@@ -91,7 +91,8 @@ func run() error {
 	// Storage-only: S3 has no shell, so we register the file tools and no Bash.
 	// builtins.Files makes that impossible to get wrong — there is no executor to
 	// diverge from the store.
-	agent := harness.New(provider, builtins.Files(fsxstore.New(fs)))
+	reg, _ := builtins.Files(fsxstore.New(fs))
+	agent := agent.New(provider, reg)
 	agent.System = "You are a coding assistant. The files you work with live in an S3 bucket, " +
 		"exposed through the standard file tools. Use them to inspect and edit files."
 	agent.Model = defaultModel
@@ -145,4 +146,3 @@ func buildRouter() (llm.Provider, string, error) {
 	}
 	return r, defaultModel, nil
 }
-

@@ -18,7 +18,7 @@ import (
 func TestFromExecutor_SharedEnvironment(t *testing.T) {
 	workspace := t.TempDir()
 	ex := exec.NewLocalExecutor(workspace)
-	registry := builtins.FromExecutor(ex)
+	registry, _ := builtins.FromExecutor(ex)
 
 	ctx := context.Background()
 
@@ -55,7 +55,7 @@ func TestFromExecutor_SharedEnvironment(t *testing.T) {
 func TestConstructors_ToolSets(t *testing.T) {
 	store := execstore.New(exec.NewLocalExecutor(t.TempDir()))
 
-	files := builtins.Files(store)
+	files, _ := builtins.Files(store)
 	if _, ok := files.Get("Read"); !ok {
 		t.Fatal("Files should register the file tools")
 	}
@@ -63,7 +63,7 @@ func TestConstructors_ToolSets(t *testing.T) {
 		t.Fatal("Files must NOT register Bash (storage-only)")
 	}
 
-	full := builtins.FromExecutor(exec.NewLocalExecutor(t.TempDir()))
+	full, _ := builtins.FromExecutor(exec.NewLocalExecutor(t.TempDir()))
 	if _, ok := full.Get("Bash"); !ok {
 		t.Fatal("FromExecutor should register Bash")
 	}

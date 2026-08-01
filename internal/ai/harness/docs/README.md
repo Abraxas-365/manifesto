@@ -51,7 +51,7 @@ func main() {
     fs, _ := fsxlocal.NewLocalFileSystem(".")
     ex := exec.NewLocalExecutor(".")
 
-    registry := builtins.Default(fsxstore.New(fs), ex)   // Read, Write, Edit, List, Glob, Grep, Bash
+    registry, _ := builtins.Default(fsxstore.New(fs), ex) // Read, Write, Edit, List, Glob, Grep, Bash (+BashOutput/KillShell)
     provider := openai.New(os.Getenv("OPENAI_API_KEY"))
 
     agent := harness.New(provider, registry)

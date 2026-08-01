@@ -16,8 +16,14 @@ const DefaultTimeout = 120 * time.Second
 // LocalExecutor runs commands on the local machine via `bash -c`. It also
 // implements BackgroundExecutor for detached, long-lived commands.
 type LocalExecutor struct {
-	// DefaultWorkDir is used when RunOptions.WorkDir is empty.
+	// DefaultWorkDir is used when RunOptions.WorkDir is empty and no
+	// per-context override exists.
 	DefaultWorkDir string
+
+	// DirFromContext, when set, extracts a per-session working directory
+	// from the context. Used in multi-session serve mode so each session's
+	// commands run in its own project directory.
+	DirFromContext func(context.Context) string
 
 	// bg holds detached shells started via Start, keyed by shell ID.
 	bg sync.Map
@@ -52,6 +58,9 @@ func (e *LocalExecutor) Run(ctx context.Context, command string, opts RunOptions
 	cmd.WaitDelay = 5 * time.Second
 
 	workDir := opts.WorkDir
+	if workDir == "" && e.DirFromContext != nil {
+		workDir = e.DirFromContext(ctx)
+	}
 	if workDir == "" {
 		workDir = e.DefaultWorkDir
 	}

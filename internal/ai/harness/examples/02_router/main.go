@@ -12,13 +12,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/anthropic"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/router"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
-	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -53,7 +53,8 @@ func run() error {
 	}
 	ex := exec.NewLocalExecutor(".")
 
-	agent := harness.New(r, builtins.Default(fsxstore.New(fs), ex))
+	reg, _ := builtins.Default(fsxstore.New(fs), ex)
+	agent := agent.New(r, reg)
 	agent.System = "You are a helpful assistant."
 
 	ctx := context.Background()

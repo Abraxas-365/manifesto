@@ -143,8 +143,6 @@ func (t *Tool) InputSchema() json.RawMessage {
 
 func (t *Tool) IsReadOnly() bool { return false }
 
-func (t *Tool) RequiresApproval(_ json.RawMessage) bool { return false }
-
 type input struct {
 	Todos []Item `json:"todos"`
 }

@@ -16,10 +16,10 @@ import (
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/todo"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
-	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -41,7 +41,7 @@ func run() error {
 		return err
 	}
 	ex := exec.NewLocalExecutor(".")
-	registry := builtins.Default(fsxstore.New(fs), ex)
+	registry, _ := builtins.Default(fsxstore.New(fs), ex)
 
 	// In-memory by default. OnChange lets us watch the plan evolve; swap Store
 	// for a persistent implementation to survive restarts or drive a UI.

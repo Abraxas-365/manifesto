@@ -14,11 +14,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
-	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -42,15 +42,16 @@ func run() error {
 	ex := exec.NewLocalExecutor(".")
 
 	provider := openai.New(key)
-	agent := harness.New(provider, builtins.Default(fsxstore.New(fs), ex))
-	agent.System = "You are a helpful assistant."
-	agent.Model = "gpt-4o"
+	reg, _ := builtins.Default(fsxstore.New(fs), ex)
+	ag := agent.New(provider, reg)
+	ag.System = "You are a helpful assistant."
+	ag.Model = "gpt-4o"
 
 	// Option A — cheap and lossy: keep only the most recent 12 messages.
-	agent.Compactor = harness.TruncateCompactor{KeepRecent: 12}
+	ag.Compactor = agent.TruncateCompactor{KeepRecent: 12}
 
 	// Option B — lossy but coherent: summarize older messages with a model.
-	// agent.Compactor = harness.SummarizeCompactor{
+	// agent.Compactor = agent.SummarizeCompactor{
 	// 	Provider:   provider, // a RAW provider (no tools), not the agent
 	// 	Model:      "gpt-4o-mini",
 	// 	MaxTokens:  512,
@@ -59,8 +60,8 @@ func run() error {
 
 	// Trigger compaction earlier than the default (0.8) to see it fire, and get
 	// notified when it does.
-	agent.CompactThreshold = 0.5
-	agent.Hooks.OnCompaction = func(before, after int) {
+	ag.CompactThreshold = 0.5
+	ag.Hooks.OnCompaction = func(before, after int) {
 		fmt.Fprintf(os.Stderr, "[compaction] ~%d -> ~%d tokens\n", before, after)
 	}
 
@@ -70,7 +71,7 @@ func run() error {
 		"Now list five notable features it introduced.",
 		"Summarize everything you've told me so far in two sentences.",
 	} {
-		out, err := agent.Run(ctx, q)
+		out, err := ag.Run(ctx, q)
 		if err != nil {
 			return err
 		}

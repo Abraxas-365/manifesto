@@ -41,6 +41,7 @@ import (
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/anthropic"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
@@ -100,7 +101,7 @@ func run() error {
 	}
 	ex := exec.NewLocalExecutor(workDir)
 
-	registry := builtins.Default(fs, ex)
+	registry, _ := builtins.Default(fsxstore.New(fs), ex)
 
 	agent := harness.New(r, registry)
 	agent.System = "You are a helpful coding assistant. Use the available tools to inspect files and answer the user's question."
@@ -115,7 +116,8 @@ func run() error {
 	registry.Register(&subagent.Tool{
 		AllowedModels: models,
 		NewAgent: func() *harness.Agent {
-			sub := harness.New(r, builtins.Default(fs, ex))
+			subReg, _ := builtins.Default(fsxstore.New(fs), ex)
+			sub := harness.New(r, subReg)
 			sub.System = "You are a focused subagent. Complete the task and return only the final answer."
 			sub.Model = startModel
 			sub.EnableRetry()

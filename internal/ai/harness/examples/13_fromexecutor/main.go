@@ -24,7 +24,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
@@ -55,9 +55,9 @@ func run() error {
 	// derives the file tools from this same executor. There is no second
 	// filesystem object to accidentally point somewhere else.
 	ex := exec.NewLocalExecutor(workspace)
-	registry := builtins.FromExecutor(ex)
+	registry, _ := builtins.FromExecutor(ex)
 
-	agent := harness.New(openai.New(key), registry)
+	agent := agent.New(openai.New(key), registry)
 	agent.System = "You are a coding assistant. Your file tools and shell both operate " +
 		"in the same workspace directory, so files you write are visible to Bash and vice versa."
 	agent.Model = "gpt-4o"

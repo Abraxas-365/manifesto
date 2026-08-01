@@ -109,7 +109,7 @@ func TestKillShell(t *testing.T) {
 func TestDefault_RegistersBackgroundTools(t *testing.T) {
 	fs := newMemFS()
 	// LocalExecutor implements BackgroundExecutor.
-	r := Default(fs, exec.NewLocalExecutor(""))
+	r, _ := Default(fs, exec.NewLocalExecutor(""))
 	for _, name := range []string{"BashOutput", "KillShell"} {
 		if _, ok := r.Get(name); !ok {
 			t.Fatalf("expected %s to be registered for a BackgroundExecutor", name)
@@ -119,7 +119,7 @@ func TestDefault_RegistersBackgroundTools(t *testing.T) {
 
 func TestDefault_NoBackgroundToolsWhenUnsupported(t *testing.T) {
 	fs := newMemFS()
-	r := Default(fs, &fakeExec{})
+	r, _ := Default(fs, &fakeExec{})
 	if _, ok := r.Get("BashOutput"); ok {
 		t.Fatal("BashOutput should not be registered for a plain Executor")
 	}

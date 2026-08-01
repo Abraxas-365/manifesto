@@ -8,12 +8,8 @@
 //
 // Split-brain is impossible here by construction: builtins.FromExecutor derives
 // the file tools' storage from the SAME DockerExecutor that backs Bash, so
-// Read/Write/Edit and shell commands all run inside the one container. No bind
+// Read/Write/Edit and shell commands all run inside the container. No bind
 // mount, no host filesystem, nothing to keep in sync.
-//
-// Because DockerExecutor implements exec.BackgroundExecutor, builtins.FromExecutor
-// (via Default) also registers BashOutput and KillShell, so the agent can start a
-// server in the container with run_in_background=true and poll its logs.
 //
 // Prereqs: Docker running, and a container with a working directory, e.g.:
 //
@@ -36,12 +32,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	hexec "github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
@@ -73,14 +66,11 @@ func run() error {
 	// inside the container — they cannot point at different worlds.
 	ex := &DockerExecutor{Container: container, WorkDir: containerWorkdir}
 
-	// FromExecutor registers the file tools + Bash; since DockerExecutor is a
-	// BackgroundExecutor, BashOutput/KillShell come along too.
-	registry := builtins.FromExecutor(ex)
+	registry, _ := builtins.FromExecutor(ex)
 
-	agent := harness.New(openai.New(key), registry)
+	agent := agent.New(openai.New(key), registry)
 	agent.System = "You are a coding assistant working inside a Docker sandbox. " +
-		"File tools edit the workspace; Bash runs commands in the container. " +
-		"For long-lived processes like servers, use run_in_background then BashOutput."
+		"File tools edit the workspace; Bash runs commands in the container."
 	agent.Model = "gpt-4o"
 
 	prompt := strings.Join(os.Args[1:], " ")
@@ -97,18 +87,12 @@ func run() error {
 }
 
 // DockerExecutor runs commands inside a running container via `docker exec`. It
-// implements exec.Executor and exec.BackgroundExecutor, so it is a drop-in
-// replacement for LocalExecutor that targets the container instead of the host.
+// implements exec.Executor, so it is a drop-in replacement for LocalExecutor
+// that targets the container instead of the host.
 type DockerExecutor struct {
 	Container string
 	WorkDir   string
-
-	bg      sync.Map // id -> *dockerShell
-	counter atomic.Uint64
 }
-
-// Compile-time proof that DockerExecutor is a full BackgroundExecutor.
-var _ hexec.BackgroundExecutor = (*DockerExecutor)(nil)
 
 // dockerArgs builds the `docker exec` argument list for a command.
 func (e *DockerExecutor) dockerArgs(command string, env []string) []string {
@@ -155,94 +139,4 @@ func (e *DockerExecutor) Run(ctx context.Context, command string, opts hexec.Run
 	}
 	res.ExitCode = 0
 	return res, nil
-}
-
-type dockerShell struct {
-	cmd *exec.Cmd
-
-	mu      sync.Mutex
-	stdout  bytes.Buffer
-	stderr  bytes.Buffer
-	running bool
-	exit    int
-}
-
-type dockerSyncBuf struct {
-	sh  *dockerShell
-	buf *bytes.Buffer
-}
-
-func (w dockerSyncBuf) Write(p []byte) (int, error) {
-	w.sh.mu.Lock()
-	defer w.sh.mu.Unlock()
-	return w.buf.Write(p)
-}
-
-// Start launches a detached `docker exec` that outlives the tool call.
-func (e *DockerExecutor) Start(_ context.Context, command string, opts hexec.RunOptions) (string, error) {
-	cmd := exec.Command("docker", e.dockerArgs(command, opts.Env)...)
-	sh := &dockerShell{cmd: cmd, running: true}
-	cmd.Stdout = dockerSyncBuf{sh: sh, buf: &sh.stdout}
-	cmd.Stderr = dockerSyncBuf{sh: sh, buf: &sh.stderr}
-
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-	id := "shell_" + strconv.FormatUint(e.counter.Add(1), 10)
-	e.bg.Store(id, sh)
-
-	go func() {
-		err := cmd.Wait()
-		sh.mu.Lock()
-		defer sh.mu.Unlock()
-		sh.running = false
-		if err != nil {
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				sh.exit = exitErr.ExitCode()
-			} else {
-				sh.exit = -1
-			}
-		}
-	}()
-	return id, nil
-}
-
-// Poll drains output produced since the previous call for id.
-func (e *DockerExecutor) Poll(id string) (*hexec.BackgroundStatus, error) {
-	v, ok := e.bg.Load(id)
-	if !ok {
-		return nil, fmt.Errorf("shell not found: %s", id)
-	}
-	sh := v.(*dockerShell)
-	sh.mu.Lock()
-	defer sh.mu.Unlock()
-	st := &hexec.BackgroundStatus{
-		Stdout:   sh.stdout.String(),
-		Stderr:   sh.stderr.String(),
-		Running:  sh.running,
-		ExitCode: sh.exit,
-	}
-	sh.stdout.Reset()
-	sh.stderr.Reset()
-	return st, nil
-}
-
-// Kill terminates the detached `docker exec`. Note: this stops the streaming
-// exec; to also stop the in-container process you would `docker exec` a kill by
-// name/pid. For the common case (a server tied to the exec) this is enough.
-func (e *DockerExecutor) Kill(id string) error {
-	v, ok := e.bg.Load(id)
-	if !ok {
-		return fmt.Errorf("shell not found: %s", id)
-	}
-	sh := v.(*dockerShell)
-	sh.mu.Lock()
-	proc := sh.cmd.Process
-	sh.mu.Unlock()
-	if proc != nil {
-		_ = proc.Kill()
-	}
-	e.bg.Delete(id)
-	return nil
 }

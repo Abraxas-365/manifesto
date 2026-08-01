@@ -43,7 +43,7 @@ sk, err := skill.FromStatic(ctx, static)
 ### Desde disco o S3
 
 ```go
-sk, _ := skill.FromFS(ctx, fs, ".claudio/skills/manifesto")
+sk, _ := skill.FromFS(ctx, fs, ".agent/skills/manifesto")
 ```
 
 ### Desde un embed.FS
@@ -63,7 +63,8 @@ skReg.Register(sk)
 skillTool := &skill.Tool{Registry: skReg}
 defer skillTool.Close() // elimina el dir efímero de materialización
 
-registry := builtins.Default(fsxstore.New(fs), ex)
+registry, readCache := builtins.Default(fsxstore.New(fs), ex)
+_ = readCache // invalídalo en OnMicroCompact
 registry.Register(skillTool)
 
 agent := harness.New(openai.New(key), registry)

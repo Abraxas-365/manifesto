@@ -19,9 +19,15 @@ func TestHooks_FireInOrder(t *testing.T) {
 
 	var events []string
 	a.Hooks = Hooks{
-		OnTurnStart:     func(turn int) { events = append(events, "turn") },
-		OnToolStart:     func(name string, _ json.RawMessage) { events = append(events, "tool_start:"+name) },
-		OnToolEnd:       func(name string, _ llm.ContentBlock) { events = append(events, "tool_end:"+name) },
+		OnTurnStart: func(turn int) { events = append(events, "turn") },
+		OnToolStart: func(_, name string, _ json.RawMessage) *ToolIntercept {
+			events = append(events, "tool_start:"+name)
+			return nil
+		},
+		OnToolEnd: func(name string, _ llm.ContentBlock) *llm.ContentBlock {
+			events = append(events, "tool_end:"+name)
+			return nil
+		},
 		OnAssistantText: func(text string) { events = append(events, "text:"+text) },
 	}
 
@@ -71,5 +77,46 @@ func TestHooks_NilSafe(t *testing.T) {
 	// No hooks set: must not panic.
 	if _, err := a.Run(context.Background(), "go"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHooks_OnToolEndReplacesResult(t *testing.T) {
+	ft := &fakeTool{name: "Echo", result: &tool.Result{Content: "original"}}
+	p := &fakeProvider{
+		responses: []llm.Response{
+			assistantToolUse(toolUse("c1", "Echo", `{}`)),
+			assistantText("done", llm.StopEndTurn),
+		},
+	}
+	a := newAgent(p, ft)
+
+	a.Hooks.OnToolEnd = func(name string, result llm.ContentBlock) *llm.ContentBlock {
+		modified := result
+		modified.Content = "replaced"
+		return &modified
+	}
+
+	if _, err := a.Run(context.Background(), "go"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The second provider call should see the replaced content in the tool
+	// result message (the last user message before the second call).
+	if len(p.requests) < 2 {
+		t.Fatalf("expected at least 2 requests, got %d", len(p.requests))
+	}
+	msgs := p.requests[1].Messages
+	toolResultMsg := msgs[len(msgs)-1] // last message is the tool result
+	if toolResultMsg.Role != llm.RoleUser {
+		t.Fatalf("expected user role, got %s", toolResultMsg.Role)
+	}
+	found := false
+	for _, b := range toolResultMsg.Content {
+		if b.Type == "tool_result" && b.Content == "replaced" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected replaced tool result content, got %+v", toolResultMsg.Content)
 	}
 }

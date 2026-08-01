@@ -14,14 +14,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/anthropic"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/router"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/subagent"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
-	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -54,15 +54,16 @@ func run() error {
 	ex := exec.NewLocalExecutor(".")
 	store := fsxstore.New(fs)
 
-	registry := builtins.Default(store, ex)
+	registry, _ := builtins.Default(store, ex)
 
 	// Register the Task tool. AllowedModels renders as an enum on the "model"
 	// parameter and is validated at call time. NewAgent runs once per call, so
 	// each subtask starts clean; it shares the router, tools, and retry.
 	registry.Register(&subagent.Tool{
 		AllowedModels: models,
-		NewAgent: func() *harness.Agent {
-			sub := harness.New(r, builtins.Default(store, ex))
+		NewAgent: func() *agent.Agent {
+			subReg, _ := builtins.Default(store, ex)
+			sub := agent.New(r, subReg)
 			sub.System = "You are a focused subagent. Return only the final answer."
 			sub.Model = "gpt-4o-mini"
 			sub.EnableRetry()
@@ -70,7 +71,7 @@ func run() error {
 		},
 	})
 
-	agent := harness.New(r, registry)
+	agent := agent.New(r, registry)
 	agent.System = "You are an orchestrator. Delegate research to the Task tool when useful."
 	agent.Model = "gpt-4o"
 

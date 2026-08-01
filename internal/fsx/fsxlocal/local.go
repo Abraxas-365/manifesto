@@ -219,6 +219,12 @@ func (fs *LocalFileSystem) Join(elem ...string) string {
 
 // fullPath converts a relative path to absolute path
 func (fs *LocalFileSystem) fullPath(path string) string {
+	// Absolute paths pass through untouched (legacy tool contract: file tools can
+	// reach any file on the machine — models emit absolute paths constantly,
+	// and Bash is unrestricted anyway, so rooting them is no security boundary).
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
 	return filepath.Join(fs.basePath, path)
 }
 

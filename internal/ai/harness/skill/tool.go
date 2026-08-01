@@ -35,9 +35,22 @@ func (t *Tool) Name() string { return ToolName }
 
 func (t *Tool) Description() string {
 	var b strings.Builder
-	b.WriteString("Load a skill by name to get specialized instructions for a task. ")
-	b.WriteString("The response includes the skill's base directory so you can Read or " +
-		"Bash its reference files on demand.")
+	b.WriteString(`Execute a skill — a specialized instruction set for a specific domain or task.
+
+Before responding to any task, check whether an available skill matches. Skills provide domain knowledge, project-specific conventions, and step-by-step procedures that override default behavior.
+
+Key triggers:
+- User references "/<skill-name>" (e.g. "/commit", "/review") → invoke that skill immediately
+- Task involves a domain with a matching skill → invoke the skill FIRST, then follow its instructions
+
+How to invoke:
+- Call this tool with the skill name and optional arguments
+- The tool returns the skill's instruction set — read and follow it to complete the task. The response includes the skill's base directory so you can Read or Bash its reference files on demand.
+
+Important:
+- Invoke BEFORE generating any other response about the task
+- NEVER mention a skill without actually calling this tool
+- Do not invoke a skill that is already running`)
 	if t.Registry != nil {
 		skills := t.Registry.All()
 		if len(skills) > 0 {
@@ -62,8 +75,6 @@ func (t *Tool) InputSchema() json.RawMessage {
 }
 
 func (t *Tool) IsReadOnly() bool { return true }
-
-func (t *Tool) RequiresApproval(_ json.RawMessage) bool { return false }
 
 func (t *Tool) cache() *Cache {
 	t.mu.Lock()

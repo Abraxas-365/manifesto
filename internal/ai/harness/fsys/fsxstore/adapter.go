@@ -34,7 +34,7 @@ func (s *store) Stat(ctx context.Context, path string) (fsys.FileInfo, error) {
 	if err != nil {
 		return fsys.FileInfo{}, mapErr(err)
 	}
-	return fsys.FileInfo{Name: info.Name, Size: info.Size, IsDir: info.IsDir}, nil
+	return fsys.FileInfo{Name: info.Name, Size: info.Size, IsDir: info.IsDir, ModTime: info.ModTime}, nil
 }
 
 func (s *store) List(ctx context.Context, path string) ([]fsys.FileInfo, error) {
@@ -44,7 +44,7 @@ func (s *store) List(ctx context.Context, path string) ([]fsys.FileInfo, error) 
 	}
 	out := make([]fsys.FileInfo, len(entries))
 	for i, e := range entries {
-		out[i] = fsys.FileInfo{Name: e.Name, Size: e.Size, IsDir: e.IsDir}
+		out[i] = fsys.FileInfo{Name: e.Name, Size: e.Size, IsDir: e.IsDir, ModTime: e.ModTime}
 	}
 	return out, nil
 }

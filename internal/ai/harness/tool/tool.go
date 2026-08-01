@@ -30,6 +30,4 @@ type Tool interface {
 	Execute(ctx context.Context, input json.RawMessage) (*Result, error)
 	// IsReadOnly reports whether the tool only reads and never mutates state.
 	IsReadOnly() bool
-	// RequiresApproval reports whether the tool needs approval before running.
-	RequiresApproval(input json.RawMessage) bool
 }

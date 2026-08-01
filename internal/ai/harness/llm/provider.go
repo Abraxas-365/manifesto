@@ -15,6 +15,8 @@ const (
 	ReasoningLow     ReasoningLevel = "low"
 	ReasoningMedium  ReasoningLevel = "medium"
 	ReasoningHigh    ReasoningLevel = "high"
+	ReasoningXHigh   ReasoningLevel = "xhigh"
+	ReasoningMax     ReasoningLevel = "max"
 )
 
 type Request struct {
@@ -50,6 +52,13 @@ type Response struct {
 type StreamEvent struct {
 	// TextDelta holds incremental assistant text, if any.
 	TextDelta string
+	// ThinkingDelta holds incremental thinking/reasoning text, if any.
+	ThinkingDelta string
+	// ToolUseStreaming is set when a tool_use block starts streaming (name + id
+	// known, but input not yet complete).
+	ToolUseStreaming *ToolUseStreamingEvent
+	// InputJSONDelta holds the byte length of an input_json_delta chunk.
+	InputJSONDeltaLen int
 	// Done is true on the terminal event.
 	Done bool
 	// Message holds the fully assembled message on the terminal event.
@@ -58,6 +67,12 @@ type StreamEvent struct {
 	StopReason StopReason
 	// Usage is set on the terminal event.
 	Usage Usage
+}
+
+// ToolUseStreamingEvent signals that a tool_use block has started streaming.
+type ToolUseStreamingEvent struct {
+	ID   string
+	Name string
 }
 
 // Stream is an iterator over streaming response events.

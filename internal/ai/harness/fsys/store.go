@@ -9,13 +9,17 @@ package fsys
 import (
 	"context"
 	"errors"
+	"time"
 )
 
-// FileInfo is the minimal metadata the file tools need.
+// FileInfo is the minimal metadata the file tools need. ModTime may be zero
+// for backends that do not report it; mtime-based features (repeat-read
+// dedup, Glob mtime sort) degrade gracefully then.
 type FileInfo struct {
-	Name  string
-	Size  int64
-	IsDir bool
+	Name    string
+	Size    int64
+	IsDir   bool
+	ModTime time.Time
 }
 
 // Store is the narrow filesystem backing the built-in file tools.

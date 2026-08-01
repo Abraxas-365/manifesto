@@ -54,8 +54,6 @@ func (t *Tool) InputSchema() json.RawMessage {
 
 func (t *Tool) IsReadOnly() bool { return true }
 
-func (t *Tool) RequiresApproval(_ json.RawMessage) bool { return false }
-
 func (t *Tool) Execute(_ context.Context, raw json.RawMessage) (*tool.Result, error) {
 	var in input
 	if err := json.Unmarshal(raw, &in); err != nil {

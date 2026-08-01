@@ -36,8 +36,7 @@ func (t *List) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *List) IsReadOnly() bool                        { return true }
-func (t *List) RequiresApproval(_ json.RawMessage) bool { return false }
+func (t *List) IsReadOnly() bool { return true }
 
 func (t *List) Execute(ctx context.Context, input json.RawMessage) (*tool.Result, error) {
 	var in listInput

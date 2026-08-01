@@ -75,18 +75,18 @@ Si se agota `MaxTurns` sin respuesta final, devuelve `ErrMaxTurns`.
 
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
-| `Approver` | `Approver` | Gatea las herramientas cuyo `RequiresApproval` es true. Nil = auto-aprobar (headless). |
+| `Approver` | `Approver` | Gatea llamadas a herramientas. La aplicación decide cuáles necesitan aprobación. Nil = auto-aprobar (headless). |
 
 ```go
-type Approver func(t tool.Tool, input json.RawMessage) bool
+type Approver func(ctx context.Context, name string, input json.RawMessage) bool
 ```
 
-Si una herramienta requiere aprobación y el `Approver` devuelve `false`, la
-llamada se rechaza y el modelo recibe "Tool execution denied by approver".
+Si el `Approver` devuelve `false`, la llamada se rechaza y el modelo recibe
+"Tool execution denied by approver".
 
 ```go
-agent.Approver = func(t tool.Tool, input json.RawMessage) bool {
-    fmt.Printf("¿Permitir %s con %s? [y/N] ", t.Name(), input)
+agent.Approver = func(ctx context.Context, name string, input json.RawMessage) bool {
+    fmt.Printf("¿Permitir %s con %s? [y/N] ", name, input)
     var r string
     fmt.Scanln(&r)
     return r == "y"
@@ -133,7 +133,7 @@ Producidos con el paquete `errx` (registro `HARNESS_AGENT`):
 ```go
 fs, _ := fsxlocal.NewLocalFileSystem(".")
 ex := exec.NewLocalExecutor(".")
-registry := builtins.Default(fsxstore.New(fs), ex)
+registry, _ := builtins.Default(fsxstore.New(fs), ex)
 
 agent := harness.New(openai.New(os.Getenv("OPENAI_API_KEY")), registry)
 agent.System = "You are a focused coding assistant."

@@ -15,10 +15,12 @@ const (
 type BlockType string
 
 const (
-	BlockText       BlockType = "text"
-	BlockToolUse    BlockType = "tool_use"
-	BlockToolResult BlockType = "tool_result"
-	BlockImage      BlockType = "image"
+	BlockText             BlockType = "text"
+	BlockToolUse          BlockType = "tool_use"
+	BlockToolResult       BlockType = "tool_result"
+	BlockImage            BlockType = "image"
+	BlockThinking         BlockType = "thinking"
+	BlockRedactedThinking BlockType = "redacted_thinking"
 )
 
 // ContentBlock is a single piece of message content. Which fields are populated
@@ -42,6 +44,10 @@ type ContentBlock struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   string `json:"content,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+
+	// Thinking block.
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
 
 	// Image block (also used to attach images to a tool result).
 	MediaType string `json:"media_type,omitempty"`
@@ -102,6 +108,16 @@ func ToolResultBlock(toolUseID, content string, isError bool) ContentBlock {
 // ImageBlock returns an image content block.
 func ImageBlock(mediaType, data string) ContentBlock {
 	return ContentBlock{Type: BlockImage, MediaType: mediaType, Data: data}
+}
+
+// ThinkingBlock returns a thinking content block.
+func ThinkingBlock(thinking, signature string) ContentBlock {
+	return ContentBlock{Type: BlockThinking, Thinking: thinking, Signature: signature}
+}
+
+// RedactedThinkingBlock returns a redacted_thinking content block.
+func RedactedThinkingBlock(data string) ContentBlock {
+	return ContentBlock{Type: BlockRedactedThinking, Data: data}
 }
 
 // UserText returns a user message containing a single text block.

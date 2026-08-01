@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
@@ -26,8 +27,10 @@ type globInput struct {
 func (t *Glob) Name() string { return "Glob" }
 
 func (t *Glob) Description() string {
-	return "Find files matching a glob pattern (e.g. \"**/*.go\", \"src/*.ts\"). " +
-		"Supports * and ? within a segment and ** across directories."
+	return `- Fast file pattern matching tool that works with any codebase size
+- Supports glob patterns like "**/*.js" or "src/**/*.ts" (* and ? within a segment, ** across directories)
+- Returns matching file paths sorted by modification time (newest first)
+- Use this tool when you need to find files by name patterns`
 }
 
 func (t *Glob) InputSchema() json.RawMessage {
@@ -41,8 +44,7 @@ func (t *Glob) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *Glob) IsReadOnly() bool                        { return true }
-func (t *Glob) RequiresApproval(_ json.RawMessage) bool { return false }
+func (t *Glob) IsReadOnly() bool { return true }
 
 func (t *Glob) Execute(ctx context.Context, input json.RawMessage) (*tool.Result, error) {
 	var in globInput
@@ -56,15 +58,16 @@ func (t *Glob) Execute(ctx context.Context, input json.RawMessage) (*tool.Result
 	if root == "" {
 		root = "."
 	}
+	root = tool.ResolvePath(ctx, root)
 
-	files, err := walkFiles(ctx, t.FS, root)
+	files, err := walkEntries(ctx, t.FS, root)
 	if err != nil {
 		return &tool.Result{Content: fmt.Sprintf("Error walking directory: %v", err), IsError: true}, nil
 	}
 
-	var matches []string
+	var matches []fileEntry
 	for _, f := range files {
-		rel := strings.TrimPrefix(f, root+"/")
+		rel := strings.TrimPrefix(f.Path, root+"/")
 		if matchGlob(in.Pattern, rel) {
 			matches = append(matches, f)
 		}
@@ -73,7 +76,21 @@ func (t *Glob) Execute(ctx context.Context, input json.RawMessage) (*tool.Result
 	if len(matches) == 0 {
 		return &tool.Result{Content: "No files matched the pattern"}, nil
 	}
-	return &tool.Result{Content: strings.Join(matches, "\n")}, nil
+
+	// Newest first (legacy rule); ties (and zero mtimes) fall back to path order
+	// for determinism.
+	sort.SliceStable(matches, func(i, j int) bool {
+		if !matches[i].ModTime.Equal(matches[j].ModTime) {
+			return matches[i].ModTime.After(matches[j].ModTime)
+		}
+		return matches[i].Path < matches[j].Path
+	})
+
+	out := make([]string, len(matches))
+	for i, m := range matches {
+		out[i] = m.Path
+	}
+	return &tool.Result{Content: strings.Join(out, "\n")}, nil
 }
 
 // matchGlob reports whether name matches pattern, where ** spans any number of

@@ -42,6 +42,9 @@ func userMessages(msg llm.Message) []openai.ChatCompletionMessageParamUnion {
 	for _, b := range msg.Content {
 		switch b.Type {
 		case llm.BlockText:
+			if b.Text == "" {
+				continue
+			}
 			parts = append(parts, openai.TextContentPart(b.Text))
 		case llm.BlockImage:
 			parts = append(parts, openai.ImageContentPart(
@@ -124,7 +127,7 @@ func fromOpenAIResponse(resp *openai.ChatCompletion) (llm.Message, llm.StopReaso
 	}
 
 	if len(resp.Choices) == 0 {
-		return llm.Message{Role: llm.RoleAssistant}, llm.StopEndTurn, usage
+		return llm.Message{Role: llm.RoleAssistant, Content: []llm.ContentBlock{llm.Text("")}}, llm.StopEndTurn, usage
 	}
 
 	choice := resp.Choices[0]

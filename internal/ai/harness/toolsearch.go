@@ -25,3 +25,12 @@ func (a *Agent) EnableToolSearch() *Agent {
 	a.Registry.Register(&toolsearch.Tool{Registry: a.Registry, Discovery: a.discovery})
 	return a
 }
+
+// UseDiscovery attaches an existing Discovery without registering a new
+// ToolSearch tool. Use it when many agents share one registry (session
+// factories): register a single toolsearch.Tool bound to the shared Discovery
+// once, then attach the same Discovery to each agent here.
+func (a *Agent) UseDiscovery(d *tool.Discovery) *Agent {
+	a.discovery = d
+	return a
+}

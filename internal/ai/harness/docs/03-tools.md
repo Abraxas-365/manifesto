@@ -17,7 +17,6 @@ type Tool interface {
     InputSchema() json.RawMessage
     Execute(ctx context.Context, input json.RawMessage) (*Result, error)
     IsReadOnly() bool
-    RequiresApproval(input json.RawMessage) bool
 }
 
 type Result struct {
@@ -31,7 +30,8 @@ type Result struct {
 - `Description` e `InputSchema` (JSON Schema) es lo que el modelo usa para decidir
   cuándo y cómo llamar la herramienta. Escríbelos con cuidado.
 - `IsReadOnly` documenta si la herramienta muta estado.
-- `RequiresApproval` decide si pasa por el `Approver` del agente (ver [01](./01-agent.md)).
+- La aprobación ya no vive en la herramienta: el `Approver` del agente (ver
+  [01](./01-agent.md)) decide qué llamadas gatear.
 
 ## El Registry
 
@@ -51,7 +51,7 @@ Tres constructores según tu backend. Todos devuelven un `*tool.Registry` listo.
 
 ```go
 func Files(store fsys.Store) *tool.Registry
-func Default(store fsys.Store, ex exec.Executor) *tool.Registry
+func Default(store fsys.Store, ex exec.Executor) (*tool.Registry, *ReadCache)
 func FromExecutor(ex exec.Executor) *tool.Registry
 ```
 
@@ -70,7 +70,7 @@ Ejemplo local:
 ```go
 fs, _ := fsxlocal.NewLocalFileSystem(".")
 ex := exec.NewLocalExecutor(".")
-registry := builtins.Default(fsxstore.New(fs), ex)
+registry, _ := builtins.Default(fsxstore.New(fs), ex)
 ```
 
 Las seis herramientas de fichero operan sobre `fsys.Store`; Bash sobre
@@ -89,7 +89,6 @@ func (NowTool) InputSchema() json.RawMessage {
     return json.RawMessage(`{"type":"object","properties":{}}`)
 }
 func (NowTool) IsReadOnly() bool                              { return true }
-func (NowTool) RequiresApproval(json.RawMessage) bool          { return false }
 
 func (NowTool) Execute(_ context.Context, _ json.RawMessage) (*tool.Result, error) {
     return &tool.Result{Content: time.Now().Format(time.RFC3339)}, nil

@@ -3,6 +3,7 @@ package builtins
 import (
 	"context"
 	"path"
+	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 )
@@ -10,11 +11,30 @@ import (
 // MaxWalkFiles bounds a recursive walk to avoid runaway traversals.
 const MaxWalkFiles = 20000
 
-// walkFiles recursively lists file paths under root (relative to root, using
-// forward slashes). Directories themselves are not emitted. The walk stops once
-// maxWalkFiles paths are collected.
+// fileEntry is one walked file: its path plus the mtime the listing reported
+// (zero when the backend has none).
+type fileEntry struct {
+	Path    string
+	ModTime time.Time
+}
+
+// walkFiles recursively lists file paths under root. Directories themselves
+// are not emitted. The walk stops once MaxWalkFiles paths are collected.
 func walkFiles(ctx context.Context, fs fsys.Store, root string) ([]string, error) {
-	var files []string
+	entries, err := walkEntries(ctx, fs, root)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, len(entries))
+	for i, e := range entries {
+		files[i] = e.Path
+	}
+	return files, nil
+}
+
+// walkEntries is walkFiles with per-file mtimes preserved.
+func walkEntries(ctx context.Context, fs fsys.Store, root string) ([]fileEntry, error) {
+	var files []fileEntry
 	queue := []string{root}
 
 	for len(queue) > 0 && len(files) < MaxWalkFiles {
@@ -31,7 +51,7 @@ func walkFiles(ctx context.Context, fs fsys.Store, root string) ([]string, error
 			if e.IsDir {
 				queue = append(queue, child)
 			} else {
-				files = append(files, child)
+				files = append(files, fileEntry{Path: child, ModTime: e.ModTime})
 				if len(files) >= MaxWalkFiles {
 					break
 				}

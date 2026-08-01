@@ -14,13 +14,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/harness"
+	agent "github.com/Abraxas-365/manifesto/internal/ai/harness"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/exec"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/openai"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm/retry"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool/builtins"
-	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys/fsxstore"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 )
 
@@ -43,20 +43,23 @@ func run() error {
 	}
 	ex := exec.NewLocalExecutor(".")
 
-	agent := harness.New(openai.New(key), builtins.Default(fsxstore.New(fs), ex))
-	agent.System = "You are a helpful coding assistant."
-	agent.Model = "gpt-4o"
+	reg, _ := builtins.Default(fsxstore.New(fs), ex)
+	ag := agent.New(openai.New(key), reg)
+	ag.System = "You are a helpful coding assistant."
+	ag.Model = "gpt-4o"
 
 	// Observability: every callback is optional (nil = ignored).
-	agent.Hooks = harness.Hooks{
+	ag.Hooks = agent.Hooks{
 		OnTurnStart: func(turn int) {
 			fmt.Fprintf(os.Stderr, "[turn %d]\n", turn)
 		},
-		OnToolStart: func(name string, input json.RawMessage) {
+		OnToolStart: func(_, name string, input json.RawMessage) *agent.ToolIntercept {
 			fmt.Fprintf(os.Stderr, "  -> %s %s\n", name, input)
+			return nil
 		},
-		OnToolEnd: func(name string, _ llm.ContentBlock) {
+		OnToolEnd: func(name string, _ llm.ContentBlock) *llm.ContentBlock {
 			fmt.Fprintf(os.Stderr, "  <- %s done\n", name)
+			return nil
 		},
 		OnRetry: func(attempt int, err error, delay time.Duration) {
 			fmt.Fprintf(os.Stderr, "  [retry %d in %v: %v]\n", attempt, delay, err)
@@ -69,16 +72,16 @@ func run() error {
 
 	// Retry with custom bounds. The hook above receives each retry via
 	// Hooks.OnRetry (EnableRetry bridges the two).
-	agent.EnableRetry(
+	ag.EnableRetry(
 		retry.WithMaxAttempts(4),
 		retry.WithBaseDelay(500*time.Millisecond),
 	)
 
-	out, err := agent.Run(context.Background(), "How many Go files are in this directory?")
+	out, err := ag.Run(context.Background(), "How many Go files are in this directory?")
 	if err != nil {
 		return err
 	}
 	fmt.Println("\n" + out)
-	fmt.Fprintf(os.Stderr, "\ntotal usage: %+v\n", agent.TotalUsage())
+	fmt.Fprintf(os.Stderr, "\ntotal usage: %+v\n", ag.TotalUsage())
 	return nil
 }

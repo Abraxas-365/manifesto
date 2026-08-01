@@ -14,6 +14,9 @@ const (
 	StopMaxTokens StopReason = "max_tokens"
 	// StopError: the provider ended abnormally (refusal, content filter, ...).
 	StopError StopReason = "error"
+	// StopContextWindowExceeded: the request exceeded the model's context
+	// window. The agent loop should compact and retry.
+	StopContextWindowExceeded StopReason = "model_context_window_exceeded"
 	// StopUnknown: the provider reported a reason we do not recognize.
 	StopUnknown StopReason = "unknown"
 )

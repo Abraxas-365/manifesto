@@ -15,7 +15,7 @@ import (
 const DefaultModel = "gpt-4o"
 
 // DefaultMaxTokens is used when a request does not specify a token limit.
-const DefaultMaxTokens = 4096
+const DefaultMaxTokens = 8192
 
 // Provider implements llm.Provider using the OpenAI Chat Completions API.
 type Provider struct {
@@ -69,12 +69,20 @@ func (p *Provider) buildParams(req llm.Request) (openai.ChatCompletionNewParams,
 		params.Tools = tools
 	}
 
+	// Set prompt_cache_key for cache optimization.
+	if bag := req.Provider["openai"]; bag != nil {
+		if key, ok := bag["prompt_cache_key"].(string); ok && key != "" {
+			params.PromptCacheKey = openai.String(key)
+		}
+	}
+
 	return params, nil
 }
 
 // providerOpts translates the request's provider-specific option bag for
 // OpenAI into per-request SDK options. Keys are applied in sorted order for
-// deterministic request bodies.
+// deterministic request bodies. Keys handled natively by responsesParams
+// (e.g. prompt_cache_key) are excluded to avoid double-setting.
 func providerOpts(req llm.Request) []option.RequestOption {
 	bag := req.Provider["openai"]
 	if len(bag) == 0 {
@@ -82,6 +90,9 @@ func providerOpts(req llm.Request) []option.RequestOption {
 	}
 	keys := make([]string, 0, len(bag))
 	for k := range bag {
+		if k == "prompt_cache_key" {
+			continue // handled directly in responsesParams
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -92,13 +103,18 @@ func providerOpts(req llm.Request) []option.RequestOption {
 	return opts
 }
 
-// Chat implements llm.Provider.
+// Chat implements llm.Provider. Routes to the Responses API for models that
+// support it (o3, gpt-5, etc.), otherwise uses Chat Completions.
 func (p *Provider) Chat(ctx context.Context, req llm.Request) (*llm.Response, error) {
 	if p.apiKey == "" {
 		return nil, llm.Registry.New(llm.ErrMissingAPIKey)
 	}
 	if len(req.Messages) == 0 {
 		return nil, llm.Registry.New(llm.ErrEmptyMessages)
+	}
+
+	if useResponses(req.Model) {
+		return p.chatResponses(ctx, req)
 	}
 
 	params, err := p.buildParams(req)
@@ -115,13 +131,18 @@ func (p *Provider) Chat(ctx context.Context, req llm.Request) (*llm.Response, er
 	return &llm.Response{Message: msg, StopReason: stopReason, Usage: usage}, nil
 }
 
-// ChatStream implements llm.Provider.
+// ChatStream implements llm.Provider. Routes to the Responses API for models
+// that support it, otherwise uses Chat Completions.
 func (p *Provider) ChatStream(ctx context.Context, req llm.Request) (llm.Stream, error) {
 	if p.apiKey == "" {
 		return nil, llm.Registry.New(llm.ErrMissingAPIKey)
 	}
 	if len(req.Messages) == 0 {
 		return nil, llm.Registry.New(llm.ErrEmptyMessages)
+	}
+
+	if useResponses(req.Model) {
+		return p.chatStreamResponses(ctx, req)
 	}
 
 	params, err := p.buildParams(req)

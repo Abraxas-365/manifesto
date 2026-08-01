@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 )
 
 // memFS is a minimal in-memory fsys.Store for offline tool tests.
 type memFS struct {
-	files map[string][]byte
+	files  map[string][]byte
+	mtimes map[string]time.Time
 }
 
-func newMemFS() *memFS { return &memFS{files: map[string][]byte{}} }
+func newMemFS() *memFS {
+	return &memFS{files: map[string][]byte{}, mtimes: map[string]time.Time{}}
+}
 
 func (m *memFS) ReadFile(_ context.Context, path string) ([]byte, error) {
 	data, ok := m.files[path]
@@ -29,7 +33,7 @@ func (m *memFS) Stat(_ context.Context, path string) (fsys.FileInfo, error) {
 	if !ok {
 		return fsys.FileInfo{}, fsys.ErrNotExist
 	}
-	return fsys.FileInfo{Name: path, Size: int64(len(data))}, nil
+	return fsys.FileInfo{Name: path, Size: int64(len(data)), ModTime: m.mtimes[path]}, nil
 }
 
 func (m *memFS) List(_ context.Context, path string) ([]fsys.FileInfo, error) {
@@ -53,7 +57,7 @@ func (m *memFS) List(_ context.Context, path string) ([]fsys.FileInfo, error) {
 			}
 			continue
 		}
-		out = append(out, fsys.FileInfo{Name: rel, Size: int64(len(m.files[f]))})
+		out = append(out, fsys.FileInfo{Name: rel, Size: int64(len(m.files[f])), ModTime: m.mtimes[f]})
 	}
 	return out, nil
 }

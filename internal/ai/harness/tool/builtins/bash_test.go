@@ -3,6 +3,7 @@ package builtins
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -80,11 +81,34 @@ func TestBash_CustomMaxOutput(t *testing.T) {
 	b := &Bash{Exec: fe, MaxOutput: 10}
 
 	out, _ := runBash(t, b, "echo big")
-	if !strings.Contains(out, "[output truncated]") {
+	if !strings.Contains(out, "[Showing lines") {
 		t.Fatalf("expected truncation with small MaxOutput, got len=%d", len(out))
 	}
-	if !strings.HasPrefix(out, strings.Repeat("x", 10)) {
-		t.Fatalf("expected first 10 bytes preserved, got %q", out)
+	// Tail truncation: the last 10 bytes should be preserved.
+	if !strings.Contains(out, strings.Repeat("x", 10)) {
+		t.Fatalf("expected last 10 bytes preserved in truncated output, got %q", out)
+	}
+}
+
+func TestBash_TruncationSpillsToTempFile(t *testing.T) {
+	fe := &fakeExec{stdout: strings.Repeat("x", 100)}
+	b := &Bash{Exec: fe, MaxOutput: 10}
+
+	out, _ := runBash(t, b, "echo big")
+	// The notice must point at a readable file containing the FULL output.
+	i := strings.Index(out, "Full output: ")
+	if i < 0 {
+		t.Fatalf("truncation notice missing spill path: %q", out)
+	}
+	rest := out[i+len("Full output: "):]
+	path := rest[:strings.IndexByte(rest, ' ')]
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("spill file unreadable: %v", err)
+	}
+	defer os.Remove(path)
+	if string(data) != strings.Repeat("x", 100) {
+		t.Fatalf("spill file must hold full output, got %d bytes", len(data))
 	}
 }
 
@@ -93,7 +117,7 @@ func TestBash_UncappedOutput(t *testing.T) {
 	b := &Bash{Exec: fe, MaxOutput: -1} // negative = no cap
 
 	out, _ := runBash(t, b, "echo huge")
-	if strings.Contains(out, "[output truncated]") {
+	if strings.Contains(out, "[Showing lines") {
 		t.Fatal("expected no truncation with MaxOutput=-1")
 	}
 }
@@ -103,7 +127,50 @@ func TestBash_DefaultMaxOutputTruncates(t *testing.T) {
 	b := &Bash{Exec: fe} // defaults
 
 	out, _ := runBash(t, b, "echo huge")
-	if !strings.Contains(out, "[output truncated]") {
+	if !strings.Contains(out, "[Showing lines") {
 		t.Fatal("expected default cap to truncate oversized output")
+	}
+}
+
+// workdirExec records the RunOptions it received.
+type workdirExec struct {
+	fakeExec
+	lastOpts exec.RunOptions
+}
+
+func (e *workdirExec) Run(ctx context.Context, command string, opts exec.RunOptions) (*exec.RunResult, error) {
+	e.lastOpts = opts
+	return e.fakeExec.Run(ctx, command, opts)
+}
+
+func TestBash_WorkdirParam(t *testing.T) {
+	dir := t.TempDir()
+	fe := &workdirExec{fakeExec: fakeExec{stdout: "ok"}}
+	b := &Bash{Exec: fe}
+
+	in, _ := json.Marshal(map[string]any{"command": "pwd", "workdir": dir})
+	res, err := b.Execute(context.Background(), in)
+	if err != nil || res.IsError {
+		t.Fatalf("unexpected error: %v %s", err, res.Content)
+	}
+	if fe.lastOpts.WorkDir != dir {
+		t.Errorf("workdir not passed: got %q", fe.lastOpts.WorkDir)
+	}
+
+	// Nonexistent workdir is rejected before reaching the executor.
+	in, _ = json.Marshal(map[string]any{"command": "pwd", "workdir": dir + "/nope"})
+	res, _ = b.Execute(context.Background(), in)
+	if !res.IsError || !strings.Contains(res.Content, "workdir does not exist") {
+		t.Errorf("want workdir validation error, got: %s", res.Content)
+	}
+}
+
+func TestBash_DescriptionParamAccepted(t *testing.T) {
+	fe := &fakeExec{stdout: "ok"}
+	b := &Bash{Exec: fe}
+	in, _ := json.Marshal(map[string]any{"command": "true", "description": "Runs true"})
+	res, err := b.Execute(context.Background(), in)
+	if err != nil || res.IsError {
+		t.Fatalf("description param must be accepted: %v %s", err, res.Content)
 	}
 }

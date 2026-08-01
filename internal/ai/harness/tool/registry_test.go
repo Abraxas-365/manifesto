@@ -14,11 +14,10 @@ type stubTool struct {
 	name string
 }
 
-func (s stubTool) Name() string                          { return s.name }
-func (s stubTool) Description() string                   { return "desc " + s.name }
-func (s stubTool) InputSchema() json.RawMessage          { return json.RawMessage(`{"type":"object"}`) }
-func (s stubTool) IsReadOnly() bool                      { return true }
-func (s stubTool) RequiresApproval(json.RawMessage) bool { return false }
+func (s stubTool) Name() string                 { return s.name }
+func (s stubTool) Description() string          { return "desc " + s.name }
+func (s stubTool) InputSchema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (s stubTool) IsReadOnly() bool             { return true }
 func (s stubTool) Execute(context.Context, json.RawMessage) (*Result, error) {
 	return &Result{Content: "ok"}, nil
 }

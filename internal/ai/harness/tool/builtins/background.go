@@ -38,8 +38,7 @@ func (t *BashOutput) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *BashOutput) IsReadOnly() bool                        { return true }
-func (t *BashOutput) RequiresApproval(_ json.RawMessage) bool { return false }
+func (t *BashOutput) IsReadOnly() bool { return true }
 
 func (t *BashOutput) Execute(_ context.Context, input json.RawMessage) (*tool.Result, error) {
 	var in bashOutputInput
@@ -104,8 +103,7 @@ func (t *KillShell) InputSchema() json.RawMessage {
 	}`)
 }
 
-func (t *KillShell) IsReadOnly() bool                        { return false }
-func (t *KillShell) RequiresApproval(_ json.RawMessage) bool { return true }
+func (t *KillShell) IsReadOnly() bool { return false }
 
 func (t *KillShell) Execute(_ context.Context, input json.RawMessage) (*tool.Result, error) {
 	var in killShellInput

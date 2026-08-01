@@ -9,31 +9,33 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
 )
 
-// fileTools registers the six file tools over the given store.
-func fileTools(r *tool.Registry, store fsys.Store) {
-	r.Register(&Read{FS: store})
+// fileTools registers the six file tools over the given store and returns the
+// ReadCache so callers can invalidate it after compaction.
+func fileTools(r *tool.Registry, store fsys.Store) *ReadCache {
+	cache := NewReadCache()
+	r.Register(&Read{FS: store, Cache: cache})
 	r.Register(&Write{FS: store})
 	r.Register(&Edit{FS: store})
 	r.Register(&List{FS: store})
 	r.Register(&Glob{FS: store})
 	r.Register(&Grep{FS: store})
+	return cache
 }
 
 // Files builds a registry with only the file tools, for storage-only
 // environments (e.g. S3) that have no shell to execute against. No Bash means
 // there is no compute backend that could diverge from the store.
-func Files(store fsys.Store) *tool.Registry {
+func Files(store fsys.Store) (*tool.Registry, *ReadCache) {
 	r := tool.NewRegistry()
-	fileTools(r, store)
-	return r
+	cache := fileTools(r, store)
+	return r, cache
 }
 
 // Default builds a registry with the file tools plus Bash, wired to the given
-// store and executor. Use this for local development or any case where you
-// deliberately pair a matching store and executor. When the executor supports
-// detached commands, BashOutput and KillShell are also registered.
-func Default(store fsys.Store, ex exec.Executor) *tool.Registry {
-	r := Files(store)
+// store and executor. When the executor supports detached commands, BashOutput
+// and KillShell are also registered.
+func Default(store fsys.Store, ex exec.Executor) (*tool.Registry, *ReadCache) {
+	r, cache := Files(store)
 	r.Register(&Bash{Exec: ex})
 	// When the executor supports detached commands, expose the tools that
 	// manage them so the agent can run servers and long-lived processes.
@@ -41,7 +43,7 @@ func Default(store fsys.Store, ex exec.Executor) *tool.Registry {
 		r.Register(&BashOutput{Exec: bg})
 		r.Register(&KillShell{Exec: bg})
 	}
-	return r
+	return r, cache
 }
 
 // FromExecutor builds a full registry (file tools + Bash) whose file operations
@@ -49,6 +51,6 @@ func Default(store fsys.Store, ex exec.Executor) *tool.Registry {
 // powers both, the file tools and shell cannot point at different worlds — a
 // "split-brain" is impossible by construction. Use this for Docker, SSH, or any
 // remote executor.
-func FromExecutor(ex exec.Executor) *tool.Registry {
+func FromExecutor(ex exec.Executor) (*tool.Registry, *ReadCache) {
 	return Default(execstore.New(ex), ex)
 }

@@ -1,12 +1,46 @@
 package openai
 
 import (
+	"os"
 	"testing"
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
+	"github.com/Abraxas-365/manifesto/internal/models"
 )
 
+func TestMain(m *testing.M) {
+	models.SetGlobalCache(models.NewDefaultCache())
+	os.Exit(m.Run())
+}
+
 func floatPtr(f float64) *float64 { return &f }
+
+func TestResponsesInputPreservesImages(t *testing.T) {
+	items := userResponseItems(llm.Message{
+		Role: llm.RoleUser,
+		Content: []llm.ContentBlock{
+			llm.Text("describe this image"),
+			llm.ImageBlock("image/png", "aGVsbG8="),
+		},
+	})
+
+	if len(items) != 1 || items[0].OfMessage == nil {
+		t.Fatalf("expected one user message, got %#v", items)
+	}
+	parts := items[0].OfMessage.Content.OfInputItemContentList
+	if len(parts) != 2 {
+		t.Fatalf("expected text and image content, got %d parts", len(parts))
+	}
+	if parts[0].OfInputText == nil || parts[0].OfInputText.Text != "describe this image" {
+		t.Fatalf("unexpected text part: %#v", parts[0])
+	}
+	if parts[1].OfInputImage == nil || !parts[1].OfInputImage.ImageURL.Valid() {
+		t.Fatalf("missing image part: %#v", parts[1])
+	}
+	if got := parts[1].OfInputImage.ImageURL.Value; got != "data:image/png;base64,aGVsbG8=" {
+		t.Fatalf("image URL = %q", got)
+	}
+}
 
 func TestBuildParamsTemperatureOmittedWhenNil(t *testing.T) {
 	p := New("k")

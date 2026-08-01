@@ -91,3 +91,33 @@ func TestRouter_NoRouteError(t *testing.T) {
 		t.Fatalf("expected HARNESS_ROUTER_NO_ROUTE, got %v", err)
 	}
 }
+
+func TestRouter_OSeriesModels(t *testing.T) {
+	oa := &tagProvider{tag: "openai"}
+	an := &tagProvider{tag: "anthropic"}
+	r := New().
+		HandlePattern("claude-*", an).
+		HandlePattern("gpt-*", oa).
+		HandlePattern("o1-*", oa).
+		HandlePattern("o3-*", oa).
+		HandlePattern("o4-*", oa).
+		HandlePattern("chatgpt-*", oa)
+
+	for _, tc := range []struct {
+		model string
+		want  string
+	}{
+		{"o1-mini", "openai"},
+		{"o1-preview", "openai"},
+		{"o3-mini", "openai"},
+		{"o3-mega-2026", "openai"},
+		{"o4-mini", "openai"},
+		{"chatgpt-4o-latest", "openai"},
+		{"claude-sonnet-4-20250514", "anthropic"},
+		{"gpt-4o", "openai"},
+	} {
+		if got := chatModel(t, r, tc.model); got != tc.want {
+			t.Errorf("model %q: got %q, want %q", tc.model, got, tc.want)
+		}
+	}
+}
