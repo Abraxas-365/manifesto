@@ -93,6 +93,119 @@ func TestSummarizeCompactor_Shape(t *testing.T) {
 	}
 }
 
+// overflowResponse mimics Anthropic reporting context overflow: a SUCCESSFUL
+// response with stop reason model_context_window_exceeded and no text content.
+func overflowResponse() llm.Response {
+	return llm.Response{
+		Message:    llm.Message{Role: llm.RoleAssistant},
+		StopReason: llm.StopContextWindowExceeded,
+	}
+}
+
+func TestSummarizeCompactor_RetriesOnOverflowStopReason(t *testing.T) {
+	// First summarization attempt overflows the model context (empty message,
+	// model_context_window_exceeded); the retry with shrunken input succeeds.
+	// Regression: this used to surface as "compaction returned empty summary"
+	// and trip the circuit breaker (auto-compact disabled after 3 failures).
+	sp := &fakeProvider{responses: []llm.Response{
+		overflowResponse(),
+		assistantText("SUMMARY", llm.StopEndTurn),
+	}}
+	msgs := []llm.Message{
+		llm.UserText("m1"), llm.UserText("m2"), llm.UserText("m3"),
+		llm.UserText("m4"), llm.UserText("m5"), llm.UserText("m6"), llm.UserText("m7"),
+	}
+	out, err := SummarizeCompactor{Provider: sp, KeepRecent: 2}.Compact(context.Background(), msgs)
+	if err != nil {
+		t.Fatalf("expected overflow retry to succeed, got %v", err)
+	}
+	if len(sp.requests) != 2 {
+		t.Fatalf("expected 2 summarization attempts, got %d", len(sp.requests))
+	}
+	// Retry must send fewer/smaller input messages than the first attempt.
+	if len(sp.requests[1].Messages) >= len(sp.requests[0].Messages) {
+		t.Fatalf("retry did not shrink input: first=%d retry=%d",
+			len(sp.requests[0].Messages), len(sp.requests[1].Messages))
+	}
+	if !strings.Contains(out[0].TextContent(), "SUMMARY") {
+		t.Fatalf("first message should be the summary, got %q", out[0].TextContent())
+	}
+}
+
+func TestSummarizeCompactor_RetriesOnOverflowError(t *testing.T) {
+	// OpenAI-style overflow: the request errors with "maximum context length".
+	sp := &overflowThenOKProvider{failures: 1}
+	msgs := []llm.Message{
+		llm.UserText("m1"), llm.UserText("m2"), llm.UserText("m3"),
+		llm.UserText("m4"), llm.UserText("m5"), llm.UserText("m6"), llm.UserText("m7"),
+	}
+	out, err := SummarizeCompactor{Provider: sp, KeepRecent: 2}.Compact(context.Background(), msgs)
+	if err != nil {
+		t.Fatalf("expected overflow-error retry to succeed, got %v", err)
+	}
+	if sp.calls != 2 {
+		t.Fatalf("expected 2 attempts, got %d", sp.calls)
+	}
+	if !strings.Contains(out[0].TextContent(), "SUMMARY") {
+		t.Fatalf("first message should be the summary, got %q", out[0].TextContent())
+	}
+}
+
+func TestSummarizeCompactor_OverflowRetriesBounded(t *testing.T) {
+	// Every attempt overflows — the loop must terminate and return an error
+	// (not spin forever), after at most maxSummarizeAttempts calls.
+	sp := &overflowThenOKProvider{failures: 100}
+	msgs := []llm.Message{
+		llm.UserText("m1"), llm.UserText("m2"), llm.UserText("m3"),
+		llm.UserText("m4"), llm.UserText("m5"), llm.UserText("m6"), llm.UserText("m7"),
+	}
+	_, err := SummarizeCompactor{Provider: sp, KeepRecent: 2}.Compact(context.Background(), msgs)
+	if err == nil {
+		t.Fatal("expected error when every attempt overflows")
+	}
+	if sp.calls > maxSummarizeAttempts {
+		t.Fatalf("expected at most %d attempts, got %d", maxSummarizeAttempts, sp.calls)
+	}
+}
+
+func TestSummarizeCompactor_EmptySummaryIncludesStopReason(t *testing.T) {
+	// Non-overflow empty response: error must include the stop reason for
+	// diagnosability instead of the bare "empty summary".
+	sp := &fakeProvider{responses: []llm.Response{
+		assistantText("", llm.StopEndTurn),
+		assistantText("", llm.StopEndTurn),
+		assistantText("", llm.StopEndTurn),
+	}}
+	msgs := []llm.Message{
+		llm.UserText("m1"), llm.UserText("m2"), llm.UserText("m3"),
+		llm.UserText("m4"), llm.UserText("m5"), llm.UserText("m6"), llm.UserText("m7"),
+	}
+	_, err := SummarizeCompactor{Provider: sp, KeepRecent: 2}.Compact(context.Background(), msgs)
+	if err == nil || !strings.Contains(err.Error(), "stop reason") {
+		t.Fatalf("expected empty-summary error with stop reason, got %v", err)
+	}
+}
+
+// overflowThenOKProvider errors with a context-overflow message for the first
+// N calls, then returns a summary.
+type overflowThenOKProvider struct {
+	failures int
+	calls    int
+}
+
+func (p *overflowThenOKProvider) Chat(_ context.Context, req llm.Request) (*llm.Response, error) {
+	p.calls++
+	if p.calls <= p.failures {
+		return nil, errors.New("api error 400: this model's maximum context length is exceeded")
+	}
+	resp := assistantText("SUMMARY", llm.StopEndTurn)
+	return &resp, nil
+}
+
+func (p *overflowThenOKProvider) ChatStream(context.Context, llm.Request) (llm.Stream, error) {
+	return nil, errors.New("not implemented")
+}
+
 func TestMaybeCompact_TriggersPastThreshold(t *testing.T) {
 	// Small context window so a couple of messages exceed the threshold.
 	p := &fakeProvider{responses: []llm.Response{assistantText("ok", llm.StopEndTurn)}}

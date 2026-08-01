@@ -192,6 +192,11 @@ const summaryToolInputMaxChars = 2000
 // system preamble, and message framing when computing the input token budget.
 const summaryPromptMarginTokens = 4_000
 
+// maxSummarizeAttempts bounds the overflow-shrink-retry loop when the
+// summarization request itself exceeds the model's context window (token
+// estimates are approximate, so the first attempt can genuinely overflow).
+const maxSummarizeAttempts = 3
+
 // compactKeepBudgetTokens is the token budget for the "recent" slice kept
 // after compaction. legacy uses 15 000 — if the last N messages exceed this,
 // fewer are kept to avoid double-compaction on image-heavy turns.
@@ -282,34 +287,55 @@ func (c SummarizeCompactor) Compact(ctx context.Context, msgs []llm.Message) ([]
 		prompt = defaultCompactionPrompt
 	}
 
-	// Copy older into a fresh slice before appending the prompt: older and
-	// recent share msgs's backing array, so appending in place would clobber
-	// recent's first message.
-	reqMsgs := make([]llm.Message, 0, len(older)+1)
-	reqMsgs = append(reqMsgs, older...)
-	reqMsgs = append(reqMsgs, llm.UserText(prompt))
-
-	req := llm.Request{
-		Model:     c.Model,
-		MaxTokens: maxTokens,
-		Messages:  reqMsgs,
-		System: `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+	// Summarize with an overflow retry loop (claudex CC-1180 parity): token
+	// estimates are approximate (o200k BPE vs the provider's tokenizer), so
+	// the summarization request itself can exceed the model's context window
+	// even after budgeting. Anthropic reports that as a SUCCESSFUL response
+	// with stop reason model_context_window_exceeded and NO text content —
+	// which previously surfaced as "compaction returned empty summary" and
+	// tripped the circuit breaker. On overflow, halve the input and retry.
+	summarySystem := `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 
 - Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.
 - You already have all the context you need in the conversation above.
 - Tool calls will be REJECTED and will waste your only turn — you will fail the task.
 - Your entire response must be plain text: an <analysis> block followed by a <summary> block.
 
-`,
-	}
-	resp, err := c.Provider.Chat(ctx, req)
-	if err != nil {
-		return nil, err
+`
+	var resp *llm.Response
+	for attempt := 1; ; attempt++ {
+		// Copy older into a fresh slice before appending the prompt: older and
+		// recent share msgs's backing array, so appending in place would
+		// clobber recent's first message.
+		reqMsgs := make([]llm.Message, 0, len(older)+1)
+		reqMsgs = append(reqMsgs, older...)
+		reqMsgs = append(reqMsgs, llm.UserText(prompt))
+
+		var err error
+		resp, err = c.Provider.Chat(ctx, llm.Request{
+			Model:     c.Model,
+			MaxTokens: maxTokens,
+			Messages:  reqMsgs,
+			System:    summarySystem,
+		})
+
+		overflowed := (err != nil && llm.IsContextOverflow(err)) ||
+			(err == nil && resp.StopReason == llm.StopContextWindowExceeded)
+		if overflowed && attempt < maxSummarizeAttempts && len(older) > 1 {
+			older = shrinkForSummaryRetry(older)
+			if len(older) > 0 {
+				continue
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		break
 	}
 
 	summary := strings.TrimSpace(resp.Message.TextContent())
 	if summary == "" {
-		return nil, fmt.Errorf("compaction returned empty summary")
+		return nil, fmt.Errorf("compaction returned empty summary (stop reason: %s)", resp.StopReason)
 	}
 	summaryMsg := llm.UserText("[conversation summary]\n" + summary)
 
@@ -1065,6 +1091,26 @@ func truncateToolInputsForSummary(msgs []llm.Message, maxChars int) []llm.Messag
 		}
 	}
 	return out
+}
+
+// shrinkForSummaryRetry halves the summarizer input after a context-window
+// overflow: keeps the newer half of the messages (the older half is what the
+// summary can most afford to lose) and prepends a note about the dropped
+// prefix. Used by SummarizeCompactor's overflow retry loop.
+func shrinkForSummaryRetry(msgs []llm.Message) []llm.Message {
+	if len(msgs) <= 1 {
+		return msgs
+	}
+	cut := safeCut(msgs, len(msgs)/2)
+	if cut <= 0 || cut >= len(msgs) {
+		cut = len(msgs) / 2
+	}
+	kept := msgs[cut:]
+	note := fmt.Sprintf("[%d oldest messages were dropped to fit the summarization window]", cut)
+	out := make([]llm.Message, 0, len(kept)+1)
+	out = append(out, llm.UserText(note))
+	out = append(out, kept...)
+	return SanitizeToolPairs(out)
 }
 
 // truncateToTokens drops the oldest messages until the BPE-estimated token
