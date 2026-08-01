@@ -91,6 +91,11 @@ type Tool struct {
 	// Isolator, when set, enables isolation: "worktree" — the subagent runs in
 	// a fresh git worktree instead of the shared tree. nil = isolation rejected.
 	Isolator Isolator
+	// OnRunStart/OnRunEnd, when set, observe each subagent execution (solo,
+	// parallel task, or background). The host wires these to lifecycle hooks
+	// (SubagentStart/SubagentStop). May be called from multiple goroutines.
+	OnRunStart func(agentName string)
+	OnRunEnd   func(agentName string, err error)
 }
 
 // ChildEvent is one live progress event from a nested agent run.
@@ -626,6 +631,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (*tool.Result, 
 	if in.Isolation == isolationWorktree {
 		run = t.isolate("solo", run)
 	}
+	run = t.observe(in.Agent, run)
 
 	if in.Background {
 		if t.Runs == nil {
@@ -688,6 +694,25 @@ func (t *Tool) executeAction(in input) (*tool.Result, error) {
 
 	default:
 		return &tool.Result{Content: fmt.Sprintf("Unknown action %q. Available: status, stop", in.Action), IsError: true}, nil
+	}
+}
+
+// observe wraps a prepared run with the OnRunStart/OnRunEnd callbacks so the
+// host can fire SubagentStart/SubagentStop hooks around every execution mode
+// (solo, parallel task, background).
+func (t *Tool) observe(agentName string, run func(ctx context.Context) (string, error)) func(ctx context.Context) (string, error) {
+	if t.OnRunStart == nil && t.OnRunEnd == nil {
+		return run
+	}
+	return func(ctx context.Context) (string, error) {
+		if t.OnRunStart != nil {
+			t.OnRunStart(agentName)
+		}
+		out, err := run(ctx)
+		if t.OnRunEnd != nil {
+			t.OnRunEnd(agentName, err)
+		}
+		return out, err
 	}
 }
 
@@ -770,6 +795,7 @@ func (t *Tool) executeParallel(ctx context.Context, in input) (*tool.Result, err
 			if in.Isolation == isolationWorktree {
 				run = t.isolate(fmt.Sprintf("task-%d", i+1), run)
 			}
+			run = t.observe(ft.item.Agent, run)
 			answer, err := run(taskCtx)
 			if err != nil {
 				msg := fmt.Sprintf("Subagent error: %v", err)

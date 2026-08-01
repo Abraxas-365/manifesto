@@ -55,5 +55,6 @@ func IsContextOverflow(err error) bool {
 	return strings.Contains(msg, "context_length_exceeded") ||
 		strings.Contains(msg, "exceeds the context window") ||
 		strings.Contains(msg, "maximum context length") ||
+		strings.Contains(msg, "prompt is too long") ||
 		strings.Contains(msg, "input length and `max_tokens` exceed context limit")
 }

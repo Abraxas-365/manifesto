@@ -705,3 +705,94 @@ func TestExecuteParallel_NoTaskLosesItsAnswer(t *testing.T) {
 		t.Fatalf("expected 3 recovered reports, got %d in:\n%s", got, res.Content)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// OnRunStart / OnRunEnd observers (SubagentStart/SubagentStop hook seam)
+// ---------------------------------------------------------------------------
+
+// failingChatProvider always errors, exercising the OnRunEnd error path.
+type failingChatProvider struct{}
+
+func (p *failingChatProvider) Chat(context.Context, llm.Request) (*llm.Response, error) {
+	return nil, errors.New("provider down")
+}
+
+func (p *failingChatProvider) ChatStream(context.Context, llm.Request) (llm.Stream, error) {
+	return nil, errors.New("provider down")
+}
+
+func TestObserve_SoloRunFiresStartAndEnd(t *testing.T) {
+	tl := newTool(&stubProvider{answer: "ok"})
+	var mu sync.Mutex
+	var events []string
+	tl.OnRunStart = func(agentName string) {
+		mu.Lock()
+		events = append(events, "start:"+agentName)
+		mu.Unlock()
+	}
+	tl.OnRunEnd = func(agentName string, err error) {
+		mu.Lock()
+		events = append(events, fmt.Sprintf("end:%s:%v", agentName, err == nil))
+		mu.Unlock()
+	}
+	if _, err := tl.Execute(context.Background(), []byte(`{"prompt":"x"}`)); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 2 || events[0] != "start:" || events[1] != "end::true" {
+		t.Fatalf("want start then successful end, got %v", events)
+	}
+}
+
+func TestObserve_ParallelTasksFirePerTask(t *testing.T) {
+	tl := newTool(&stubProvider{answer: "ok"})
+	var mu sync.Mutex
+	starts, ends := 0, 0
+	tl.OnRunStart = func(string) { mu.Lock(); starts++; mu.Unlock() }
+	tl.OnRunEnd = func(_ string, err error) {
+		if err == nil {
+			mu.Lock()
+			ends++
+			mu.Unlock()
+		}
+	}
+	res, err := tl.Execute(context.Background(), []byte(`{"tasks":[{"task":"a"},{"task":"b","count":2}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if starts != 3 || ends != 3 {
+		t.Fatalf("want 3 starts and 3 successful ends (a + b×2), got %d/%d", starts, ends)
+	}
+}
+
+func TestObserve_ErrorReportedToOnRunEnd(t *testing.T) {
+	tl := &Tool{NewAgent: func() *agent.Agent {
+		return agent.New(&failingChatProvider{}, tool.NewRegistry())
+	}}
+	var gotErr error
+	tl.OnRunEnd = func(_ string, err error) { gotErr = err }
+	res, err := tl.Execute(context.Background(), []byte(`{"prompt":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error result from failing provider")
+	}
+	if gotErr == nil {
+		t.Fatal("OnRunEnd must receive the run error")
+	}
+}
+
+func TestObserve_NilCallbacksNoOp(t *testing.T) {
+	tl := newTool(&stubProvider{answer: "ok"})
+	// No callbacks set: must not panic, observe() must return run unchanged.
+	if _, err := tl.Execute(context.Background(), []byte(`{"prompt":"x"}`)); err != nil {
+		t.Fatal(err)
+	}
+}
