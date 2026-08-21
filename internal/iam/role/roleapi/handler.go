@@ -40,9 +40,9 @@ func (h *RoleHandlers) CreateRole(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	var req role.CreateRoleRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[role.CreateRoleRequest](c)
+	if err != nil {
+		return err
 	}
 
 	r, err := h.service.CreateRole(c.Context(), authContext.TenantID, req)
@@ -89,9 +89,9 @@ func (h *RoleHandlers) UpdateRole(c *fiber.Ctx) error {
 	}
 
 	roleID := c.Params("id")
-	var req role.UpdateRoleRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[role.UpdateRoleRequest](c)
+	if err != nil {
+		return err
 	}
 
 	r, err := h.service.UpdateRole(c.Context(), roleID, authContext.TenantID, req)
@@ -123,9 +123,9 @@ func (h *RoleHandlers) AssignRole(c *fiber.Ctx) error {
 	}
 
 	roleID := c.Params("id")
-	var req role.AssignRoleRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[role.AssignRoleRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.AssignRoleToUser(c.Context(), roleID, req.UserID, authContext.TenantID); err != nil {

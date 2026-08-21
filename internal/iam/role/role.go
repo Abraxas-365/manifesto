@@ -2,7 +2,9 @@ package role
 
 import (
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -66,15 +68,32 @@ func (r *Role) ToDTO() RoleDTO {
 }
 
 type CreateRoleRequest struct {
-	Name        string   `json:"name" validate:"required,min=2"`
+	Name        string   `json:"name"`
 	Description string   `json:"description"`
-	Scopes      []string `json:"scopes" validate:"required,min=1"`
+	Scopes      []string `json:"scopes"`
+}
+
+func (r *CreateRoleRequest) Validate() error {
+	if utf8.RuneCountInString(strings.TrimSpace(r.Name)) < 2 {
+		return errx.Validation("Name is required and must be at least 2 characters").WithDetail("field", "name")
+	}
+	if len(r.Scopes) == 0 {
+		return errx.Validation("At least one scope is required").WithDetail("field", "scopes")
+	}
+	return nil
 }
 
 type UpdateRoleRequest struct {
-	Name        *string  `json:"name,omitempty" validate:"omitempty,min=2"`
+	Name        *string  `json:"name,omitempty"`
 	Description *string  `json:"description,omitempty"`
 	Scopes      []string `json:"scopes,omitempty"`
+}
+
+func (r *UpdateRoleRequest) Validate() error {
+	if r.Name != nil && utf8.RuneCountInString(strings.TrimSpace(*r.Name)) < 2 {
+		return errx.Validation("Name must be at least 2 characters").WithDetail("field", "name")
+	}
+	return nil
 }
 
 type RoleListResponse struct {
@@ -83,14 +102,21 @@ type RoleListResponse struct {
 }
 
 type AssignRoleRequest struct {
-	UserID kernel.UserID `json:"user_id" validate:"required"`
+	UserID kernel.UserID `json:"user_id"`
+}
+
+func (r *AssignRoleRequest) Validate() error {
+	if r.UserID.IsEmpty() {
+		return errx.Validation("User ID is required").WithDetail("field", "user_id")
+	}
+	return nil
 }
 
 type UserRolesResponse struct {
-	UserID         kernel.UserID `json:"user_id"`
-	Roles          []RoleDTO     `json:"roles"`
-	DirectScopes   []string      `json:"direct_scopes"`
-	EffectiveScopes []string     `json:"effective_scopes"`
+	UserID          kernel.UserID `json:"user_id"`
+	Roles           []RoleDTO     `json:"roles"`
+	DirectScopes    []string      `json:"direct_scopes"`
+	EffectiveScopes []string      `json:"effective_scopes"`
 }
 
 // ============================================================================
@@ -100,11 +126,11 @@ type UserRolesResponse struct {
 var ErrRegistry = errx.NewRegistry("ROLE")
 
 var (
-	CodeRoleNotFound      = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Role not found")
-	CodeRoleAlreadyExists = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "Role with this name already exists in tenant")
-	CodeRoleInvalidScopes = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes provided")
+	CodeRoleNotFound        = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Role not found")
+	CodeRoleAlreadyExists   = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "Role with this name already exists in tenant")
+	CodeRoleInvalidScopes   = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes provided")
 	CodeRoleAlreadyAssigned = ErrRegistry.Register("ALREADY_ASSIGNED", errx.TypeConflict, http.StatusConflict, "Role already assigned to user")
-	CodeRoleNotAssigned   = ErrRegistry.Register("NOT_ASSIGNED", errx.TypeNotFound, http.StatusNotFound, "Role not assigned to user")
+	CodeRoleNotAssigned     = ErrRegistry.Register("NOT_ASSIGNED", errx.TypeNotFound, http.StatusNotFound, "Role not assigned to user")
 )
 
 func ErrRoleNotFound() *errx.Error {

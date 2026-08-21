@@ -35,9 +35,9 @@ func (h *UserHandlers) CreateUser(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	var req user.CreateUserRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[user.CreateUserRequest](c)
+	if err != nil {
+		return err
 	}
 	req.TenantID = authContext.TenantID
 
@@ -83,9 +83,9 @@ func (h *UserHandlers) UpdateUser(c *fiber.Ctx) error {
 	}
 
 	userID := kernel.UserID(c.Params("id"))
-	var req user.UpdateUserRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[user.UpdateUserRequest](c)
+	if err != nil {
+		return err
 	}
 	req.TenantID = authContext.TenantID
 
@@ -129,11 +129,9 @@ func (h *UserHandlers) SuspendUser(c *fiber.Ctx) error {
 	}
 
 	userID := kernel.UserID(c.Params("id"))
-	var req struct {
-		Reason string `json:"reason"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[user.SuspendUserRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.SuspendUser(c.Context(), userID, authContext.TenantID, req.Reason); err != nil {

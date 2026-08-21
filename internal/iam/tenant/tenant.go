@@ -2,7 +2,9 @@ package tenant
 
 import (
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -178,14 +180,30 @@ func (t *Tenant) ToDTO() TenantDetailsDTO {
 
 // CreateTenantRequest represents the request to create a tenant
 type CreateTenantRequest struct {
-	CompanyName      string           `json:"company_name" validate:"required,min=2"`
+	CompanyName      string           `json:"company_name"`
 	SubscriptionPlan SubscriptionPlan `json:"subscription_plan"`
+}
+
+// Validate validates the CreateTenantRequest
+func (r *CreateTenantRequest) Validate() error {
+	if utf8.RuneCountInString(strings.TrimSpace(r.CompanyName)) < 2 {
+		return errx.Validation("Company name is required and must be at least 2 characters").WithDetail("field", "company_name")
+	}
+	return nil
 }
 
 // UpdateTenantRequest represents the request to update a tenant
 type UpdateTenantRequest struct {
-	CompanyName *string       `json:"company_name,omitempty" validate:"omitempty,min=2"`
+	CompanyName *string       `json:"company_name,omitempty"`
 	Status      *TenantStatus `json:"status,omitempty"`
+}
+
+// Validate validates the UpdateTenantRequest
+func (r *UpdateTenantRequest) Validate() error {
+	if r.CompanyName != nil && utf8.RuneCountInString(strings.TrimSpace(*r.CompanyName)) < 2 {
+		return errx.Validation("Company name must be at least 2 characters").WithDetail("field", "company_name")
+	}
+	return nil
 }
 
 // TenantResponse represents the complete tenant response with configuration
@@ -210,7 +228,15 @@ type TenantResponseDTO struct {
 
 // SuspendTenantRequest for suspending a tenant
 type SuspendTenantRequest struct {
-	Reason string `json:"reason" validate:"required,min=10"`
+	Reason string `json:"reason"`
+}
+
+// Validate validates the SuspendTenantRequest
+func (r *SuspendTenantRequest) Validate() error {
+	if utf8.RuneCountInString(strings.TrimSpace(r.Reason)) < 10 {
+		return errx.Validation("Reason is required and must be at least 10 characters").WithDetail("field", "reason")
+	}
+	return nil
 }
 
 // ActivateTenantRequest for activating a tenant
@@ -220,18 +246,47 @@ type ActivateTenantRequest struct {
 
 // UpgradePlanRequest for changing the subscription plan
 type UpgradePlanRequest struct {
-	NewPlan SubscriptionPlan `json:"new_plan" validate:"required"`
+	NewPlan SubscriptionPlan `json:"new_plan"`
+}
+
+// Validate validates the UpgradePlanRequest
+func (r *UpgradePlanRequest) Validate() error {
+	switch r.NewPlan {
+	case PlanTrial, PlanBasic, PlanProfessional, PlanEnterprise:
+		return nil
+	default:
+		return errx.Validation("New plan is required and must be a valid subscription plan").WithDetail("field", "new_plan")
+	}
 }
 
 // SetConfigRequest for setting a configuration
 type SetConfigRequest struct {
-	Key   string `json:"key" validate:"required"`
-	Value string `json:"value" validate:"required"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// Validate validates the SetConfigRequest
+func (r *SetConfigRequest) Validate() error {
+	if strings.TrimSpace(r.Key) == "" {
+		return errx.Validation("Key is required").WithDetail("field", "key")
+	}
+	if strings.TrimSpace(r.Value) == "" {
+		return errx.Validation("Value is required").WithDetail("field", "value")
+	}
+	return nil
 }
 
 // DeleteConfigRequest for deleting a configuration
 type DeleteConfigRequest struct {
-	Key string `json:"key" validate:"required"`
+	Key string `json:"key"`
+}
+
+// Validate validates the DeleteConfigRequest
+func (r *DeleteConfigRequest) Validate() error {
+	if strings.TrimSpace(r.Key) == "" {
+		return errx.Validation("Key is required").WithDetail("field", "key")
+	}
+	return nil
 }
 
 // TenantListResponse for tenant lists
@@ -283,9 +338,22 @@ type TenantHealthResponse struct {
 
 // BulkTenantOperationRequest for bulk operations
 type BulkTenantOperationRequest struct {
-	TenantIDs []kernel.TenantID `json:"tenant_ids" validate:"required,min=1"`
-	Operation string            `json:"operation" validate:"required,oneof=suspend activate delete"`
+	TenantIDs []kernel.TenantID `json:"tenant_ids"`
+	Operation string            `json:"operation"`
 	Reason    string            `json:"reason,omitempty"`
+}
+
+// Validate validates the BulkTenantOperationRequest
+func (r *BulkTenantOperationRequest) Validate() error {
+	if len(r.TenantIDs) == 0 {
+		return errx.Validation("At least one tenant ID is required").WithDetail("field", "tenant_ids")
+	}
+	switch r.Operation {
+	case "suspend", "activate", "delete":
+	default:
+		return errx.Validation("Operation is required and must be one of: suspend, activate, delete").WithDetail("field", "operation")
+	}
+	return nil
 }
 
 // BulkTenantOperationResponse result of bulk operations

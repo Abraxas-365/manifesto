@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeysrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
+	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -33,9 +34,9 @@ func (h *APIKeyHandlers) CreateAPIKey(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	var req apikey.CreateAPIKeyRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[apikey.CreateAPIKeyRequest](c)
+	if err != nil {
+		return err
 	}
 
 	response, err := h.service.CreateAPIKey(c.Context(), authContext.TenantID, *authContext.UserID, req)
@@ -82,9 +83,9 @@ func (h *APIKeyHandlers) UpdateAPIKey(c *fiber.Ctx) error {
 	}
 
 	keyID := c.Params("id")
-	var req apikey.UpdateAPIKeyRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[apikey.UpdateAPIKeyRequest](c)
+	if err != nil {
+		return err
 	}
 
 	key, err := h.service.UpdateAPIKey(c.Context(), keyID, authContext.TenantID, req)

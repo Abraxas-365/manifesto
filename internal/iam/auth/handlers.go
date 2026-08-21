@@ -72,6 +72,13 @@ type LoginRequest struct {
 	InvitationToken string            `json:"invitation_token,omitempty"`
 }
 
+func (r *LoginRequest) Validate() error {
+	if strings.TrimSpace(string(r.Provider)) == "" {
+		return errx.Validation("provider is required").WithDetail("field", "provider")
+	}
+	return nil
+}
+
 // LoginResponse is the login endpoint response
 type LoginResponse struct {
 	AuthURL string `json:"auth_url"`
@@ -93,6 +100,13 @@ type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+func (r *RefreshTokenRequest) Validate() error {
+	if strings.TrimSpace(r.RefreshToken) == "" {
+		return errx.Validation("refresh_token is required").WithDetail("field", "refresh_token")
+	}
+	return nil
+}
+
 // RegisterRoutes registers the auth routes on Fiber
 func (ah *AuthHandlers) RegisterRoutes(router fiber.Router) {
 	auth := router.Group("/auth")
@@ -106,11 +120,9 @@ func (ah *AuthHandlers) RegisterRoutes(router fiber.Router) {
 
 // InitiateLogin starts the OAuth login process
 func (ah *AuthHandlers) InitiateLogin(c *fiber.Ctx) error {
-	var req LoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[LoginRequest](c)
+	if err != nil {
+		return err
 	}
 
 	// Normalize the provider to uppercase and verify it is supported
@@ -323,23 +335,14 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 
 // RefreshToken renews an access token using a refresh token
 func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
-	var req RefreshTokenRequest
-
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
-	}
-
-	// Alternatively, get refresh token from cookie
-	if req.RefreshToken == "" {
-		req.RefreshToken = c.Cookies("refresh_token")
-	}
-
-	if req.RefreshToken == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "refresh_token is required",
-		})
+	req, err := kernel.BindAndValidate[RefreshTokenRequest](c)
+	if err != nil {
+		// Fall back to cookie-based refresh token before failing validation
+		if cookieToken := c.Cookies(ah.config.Auth.Cookie.RefreshTokenName); cookieToken != "" {
+			req.RefreshToken = cookieToken
+		} else {
+			return err
+		}
 	}
 
 	// Find refresh token in database

@@ -59,11 +59,9 @@ func (h *ScopeHandlers) SetUserScopes(c *fiber.Ctx) error {
 	}
 
 	userID := kernel.UserID(c.Params("userId"))
-	var req struct {
-		Scopes []string `json:"scopes" validate:"required,min=1"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[user.AddScopesRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.SetUserScopes(c.Context(), userID, authContext.TenantID, req.Scopes); err != nil {
@@ -80,9 +78,9 @@ func (h *ScopeHandlers) AddUserScopes(c *fiber.Ctx) error {
 	}
 
 	userID := kernel.UserID(c.Params("userId"))
-	var req user.AddScopesRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[user.AddScopesRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.AddScopesToUser(c.Context(), userID, authContext.TenantID, req.Scopes); err != nil {
@@ -99,9 +97,9 @@ func (h *ScopeHandlers) RemoveUserScopes(c *fiber.Ctx) error {
 	}
 
 	userID := kernel.UserID(c.Params("userId"))
-	var req user.RemoveScopesRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[user.RemoveScopesRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.RemoveScopesFromUser(c.Context(), userID, authContext.TenantID, req.Scopes); err != nil {
@@ -109,5 +107,3 @@ func (h *ScopeHandlers) RemoveUserScopes(c *fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{"message": "Scopes removed successfully"})
 }
-
-

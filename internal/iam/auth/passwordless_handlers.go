@@ -3,9 +3,13 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/mail"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Abraxas-365/manifesto/internal/config"
+	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp"
@@ -104,7 +108,14 @@ func (h *PasswordlessAuthHandlers) RegisterRoutes(router fiber.Router) {
 
 // GetUserTenantsRequest to find tenants for an email
 type GetUserTenantsRequest struct {
-	Email string `json:"email" validate:"required,email"`
+	Email string `json:"email"`
+}
+
+func (r *GetUserTenantsRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("valid email is required").WithDetail("field", "email")
+	}
+	return nil
 }
 
 // TenantOption represents a tenant the user belongs to
@@ -127,11 +138,9 @@ type GetUserTenantsResponse struct {
 
 // GetUserTenants returns all tenants where this email has an account
 func (h *PasswordlessAuthHandlers) GetUserTenants(c *fiber.Ctx) error {
-	var req GetUserTenantsRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[GetUserTenantsRequest](c)
+	if err != nil {
+		return err
 	}
 
 	// Find all users with this email across tenants
@@ -180,9 +189,22 @@ func (h *PasswordlessAuthHandlers) GetUserTenants(c *fiber.Ctx) error {
 
 // InitiateSignupRequest starts the signup process
 type InitiateSignupRequest struct {
-	Email           string `json:"email" validate:"required,email"`
-	Name            string `json:"name" validate:"required,min=2"`
-	InvitationToken string `json:"invitation_token" validate:"required"`
+	Email           string `json:"email"`
+	Name            string `json:"name"`
+	InvitationToken string `json:"invitation_token"`
+}
+
+func (r *InitiateSignupRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("valid email is required").WithDetail("field", "email")
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(r.Name)) < 2 {
+		return errx.Validation("name must be at least 2 characters").WithDetail("field", "name")
+	}
+	if strings.TrimSpace(r.InvitationToken) == "" {
+		return errx.Validation("invitation_token is required").WithDetail("field", "invitation_token")
+	}
+	return nil
 }
 
 type InitiateSignupResponse struct {
@@ -201,11 +223,9 @@ type InitiateSignupResponse struct {
 
 // InitiateSignup creates user account and sends OTP (with account linking support)
 func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
-	var req InitiateSignupRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[InitiateSignupRequest](c)
+	if err != nil {
+		return err
 	}
 
 	// 1. Validate invitation token
@@ -391,22 +411,33 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 
 // VerifySignupRequest completes signup by verifying OTP
 type VerifySignupRequest struct {
-	Email    string          `json:"email" validate:"required,email"`
-	Code     string          `json:"code" validate:"required"`
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
+	Email    string          `json:"email"`
+	Code     string          `json:"code"`
+	TenantID kernel.TenantID `json:"tenant_id"`
+}
+
+func (r *VerifySignupRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("valid email is required").WithDetail("field", "email")
+	}
+	if strings.TrimSpace(r.Code) == "" {
+		return errx.Validation("code is required").WithDetail("field", "code")
+	}
+	if r.TenantID.IsEmpty() {
+		return errx.Validation("tenant_id is required").WithDetail("field", "tenant_id")
+	}
+	return nil
 }
 
 // VerifySignup verifies OTP and activates account
 func (h *PasswordlessAuthHandlers) VerifySignup(c *fiber.Ctx) error {
-	var req VerifySignupRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[VerifySignupRequest](c)
+	if err != nil {
+		return err
 	}
 
 	// 1. Verify OTP
-	_, err := h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
+	_, err = h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -453,8 +484,18 @@ func (h *PasswordlessAuthHandlers) VerifySignup(c *fiber.Ctx) error {
 
 // InitiateLoginRequest starts the login process
 type InitiateLoginRequest struct {
-	Email    string          `json:"email" validate:"required,email"`
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
+	Email    string          `json:"email"`
+	TenantID kernel.TenantID `json:"tenant_id"`
+}
+
+func (r *InitiateLoginRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("valid email is required").WithDetail("field", "email")
+	}
+	if r.TenantID.IsEmpty() {
+		return errx.Validation("tenant_id is required").WithDetail("field", "tenant_id")
+	}
+	return nil
 }
 
 type InitiateLoginResponse struct {
@@ -470,11 +511,9 @@ type InitiateLoginResponse struct {
 
 // InitiateLogin sends OTP for login
 func (h *PasswordlessAuthHandlers) InitiateLogin(c *fiber.Ctx) error {
-	var req InitiateLoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[InitiateLoginRequest](c)
+	if err != nil {
+		return err
 	}
 
 	// 1. Find user by email and tenant
@@ -558,22 +597,33 @@ func (h *PasswordlessAuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 
 // VerifyLoginRequest completes login by verifying OTP
 type VerifyLoginRequest struct {
-	Email    string          `json:"email" validate:"required,email"`
-	Code     string          `json:"code" validate:"required"`
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
+	Email    string          `json:"email"`
+	Code     string          `json:"code"`
+	TenantID kernel.TenantID `json:"tenant_id"`
+}
+
+func (r *VerifyLoginRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("valid email is required").WithDetail("field", "email")
+	}
+	if strings.TrimSpace(r.Code) == "" {
+		return errx.Validation("code is required").WithDetail("field", "code")
+	}
+	if r.TenantID.IsEmpty() {
+		return errx.Validation("tenant_id is required").WithDetail("field", "tenant_id")
+	}
+	return nil
 }
 
 // VerifyLogin verifies OTP and returns JWT tokens
 func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
-	var req VerifyLoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[VerifyLoginRequest](c)
+	if err != nil {
+		return err
 	}
 
 	// 1. Verify OTP
-	_, err := h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
+	_, err = h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Invalid or expired code",
@@ -704,18 +754,29 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 
 // ResendOTPRequest for resending OTP
 type ResendOTPRequest struct {
-	Email    string          `json:"email" validate:"required,email"`
-	TenantID kernel.TenantID `json:"tenant_id" validate:"required"`
-	Purpose  string          `json:"purpose" validate:"required,oneof=signup login"`
+	Email    string          `json:"email"`
+	TenantID kernel.TenantID `json:"tenant_id"`
+	Purpose  string          `json:"purpose"`
+}
+
+func (r *ResendOTPRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("valid email is required").WithDetail("field", "email")
+	}
+	if r.TenantID.IsEmpty() {
+		return errx.Validation("tenant_id is required").WithDetail("field", "tenant_id")
+	}
+	if r.Purpose != "signup" && r.Purpose != "login" {
+		return errx.Validation("purpose must be one of: signup, login").WithDetail("field", "purpose")
+	}
+	return nil
 }
 
 // ResendOTP resends OTP code
 func (h *PasswordlessAuthHandlers) ResendOTP(c *fiber.Ctx) error {
-	var req ResendOTPRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[ResendOTPRequest](c)
+	if err != nil {
+		return err
 	}
 
 	// Verify user exists in the tenant

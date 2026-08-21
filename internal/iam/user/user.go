@@ -2,7 +2,10 @@ package user
 
 import (
 	"net/http"
+	"net/mail"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/iam"
@@ -218,18 +221,35 @@ func (u *User) ToDTO() UserDetailsDTO {
 
 // CreateUserRequest represents the request to create a user
 type CreateUserRequest struct {
-	TenantID      kernel.TenantID `json:"tenant_id" validate:"required"`
-	Email         string          `json:"email" validate:"required,email"`
-	Name          string          `json:"name" validate:"required,min=2"`
-	Scopes []string `json:"scopes,omitempty"`
+	TenantID kernel.TenantID `json:"tenant_id"`
+	Email    string          `json:"email"`
+	Name     string          `json:"name"`
+	Scopes   []string        `json:"scopes,omitempty"`
+}
+
+func (r *CreateUserRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("A valid email is required").WithDetail("field", "email")
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(r.Name)) < 2 {
+		return errx.Validation("Name must be at least 2 characters").WithDetail("field", "name")
+	}
+	return nil
 }
 
 // UpdateUserRequest represents the request to update a user
 type UpdateUserRequest struct {
-	TenantID      kernel.TenantID `json:"tenant_id" validate:"required"`
-	Name   *string     `json:"name,omitempty" validate:"omitempty,min=2"`
-	Status *UserStatus `json:"status,omitempty"`
-	Scopes []string    `json:"scopes,omitempty"`
+	TenantID kernel.TenantID `json:"tenant_id"`
+	Name     *string         `json:"name,omitempty"`
+	Status   *UserStatus     `json:"status,omitempty"`
+	Scopes   []string        `json:"scopes,omitempty"`
+}
+
+func (r *UpdateUserRequest) Validate() error {
+	if r.Name != nil && utf8.RuneCountInString(strings.TrimSpace(*r.Name)) < 2 {
+		return errx.Validation("Name must be at least 2 characters").WithDetail("field", "name")
+	}
+	return nil
 }
 
 // UserResponse represents the full response for a user
@@ -287,12 +307,38 @@ type ScopeDetail struct {
 
 // AddScopesRequest for adding scopes to a user
 type AddScopesRequest struct {
-	Scopes []string `json:"scopes" validate:"required,min=1"`
+	Scopes []string `json:"scopes"`
+}
+
+func (r *AddScopesRequest) Validate() error {
+	if len(r.Scopes) < 1 {
+		return errx.Validation("At least one scope is required").WithDetail("field", "scopes")
+	}
+	return nil
 }
 
 // RemoveScopesRequest for removing scopes from a user
 type RemoveScopesRequest struct {
-	Scopes []string `json:"scopes" validate:"required,min=1"`
+	Scopes []string `json:"scopes"`
+}
+
+func (r *RemoveScopesRequest) Validate() error {
+	if len(r.Scopes) < 1 {
+		return errx.Validation("At least one scope is required").WithDetail("field", "scopes")
+	}
+	return nil
+}
+
+// SuspendUserRequest for suspending a user
+type SuspendUserRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (r *SuspendUserRequest) Validate() error {
+	if strings.TrimSpace(r.Reason) == "" {
+		return errx.Validation("Reason is required").WithDetail("field", "reason")
+	}
+	return nil
 }
 
 // UserScopesResponse response with a user's scopes
@@ -316,16 +362,16 @@ type AvailableScopesResponse struct {
 var ErrRegistry = errx.NewRegistry("USER")
 
 var (
-	CodeUserNotFound         = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "User not found")
-	CodeUserAlreadyExists    = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "User already exists")
-	CodeUserNotInTenant      = ErrRegistry.Register("NOT_IN_TENANT", errx.TypeAuthorization, http.StatusForbidden, "User does not belong to this tenant")
-	CodeEmailNotVerified     = ErrRegistry.Register("EMAIL_NOT_VERIFIED", errx.TypeBusiness, http.StatusPreconditionFailed, "Email not verified")
-	CodeUserSuspended        = ErrRegistry.Register("SUSPENDED", errx.TypeBusiness, http.StatusForbidden, "User suspended")
-	CodeOnboardingRequired   = ErrRegistry.Register("ONBOARDING_REQUIRED", errx.TypeBusiness, http.StatusPreconditionRequired, "Onboarding required")
-	CodeInvalidStatus        = ErrRegistry.Register("INVALID_STATUS", errx.TypeBusiness, http.StatusBadRequest, "Invalid user status for this operation")
-	CodeInvalidScopes = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
-	CodeScopeNotFound        = ErrRegistry.Register("SCOPE_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Scope not found")
-	CodeInsufficientScopes   = ErrRegistry.Register("INSUFFICIENT_SCOPES", errx.TypeAuthorization, http.StatusForbidden, "Insufficient scopes")
+	CodeUserNotFound       = ErrRegistry.Register("NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "User not found")
+	CodeUserAlreadyExists  = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "User already exists")
+	CodeUserNotInTenant    = ErrRegistry.Register("NOT_IN_TENANT", errx.TypeAuthorization, http.StatusForbidden, "User does not belong to this tenant")
+	CodeEmailNotVerified   = ErrRegistry.Register("EMAIL_NOT_VERIFIED", errx.TypeBusiness, http.StatusPreconditionFailed, "Email not verified")
+	CodeUserSuspended      = ErrRegistry.Register("SUSPENDED", errx.TypeBusiness, http.StatusForbidden, "User suspended")
+	CodeOnboardingRequired = ErrRegistry.Register("ONBOARDING_REQUIRED", errx.TypeBusiness, http.StatusPreconditionRequired, "Onboarding required")
+	CodeInvalidStatus      = ErrRegistry.Register("INVALID_STATUS", errx.TypeBusiness, http.StatusBadRequest, "Invalid user status for this operation")
+	CodeInvalidScopes      = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
+	CodeScopeNotFound      = ErrRegistry.Register("SCOPE_NOT_FOUND", errx.TypeNotFound, http.StatusNotFound, "Scope not found")
+	CodeInsufficientScopes = ErrRegistry.Register("INSUFFICIENT_SCOPES", errx.TypeAuthorization, http.StatusForbidden, "Insufficient scopes")
 )
 
 // Helper functions

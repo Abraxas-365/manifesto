@@ -38,9 +38,9 @@ func (h *TenantHandlers) RegisterRoutes(router fiber.Router, authMiddleware *aut
 }
 
 func (h *TenantHandlers) CreateTenant(c *fiber.Ctx) error {
-	var req tenant.CreateTenantRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[tenant.CreateTenantRequest](c)
+	if err != nil {
+		return err
 	}
 
 	t, err := h.service.CreateTenant(c.Context(), req)
@@ -69,9 +69,9 @@ func (h *TenantHandlers) GetTenant(c *fiber.Ctx) error {
 
 func (h *TenantHandlers) UpdateTenant(c *fiber.Ctx) error {
 	tenantID := kernel.NewTenantID(c.Params("id"))
-	var req tenant.UpdateTenantRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[tenant.UpdateTenantRequest](c)
+	if err != nil {
+		return err
 	}
 
 	updated, err := h.service.UpdateTenant(c.Context(), tenantID, req)
@@ -91,11 +91,9 @@ func (h *TenantHandlers) DeleteTenant(c *fiber.Ctx) error {
 
 func (h *TenantHandlers) SuspendTenant(c *fiber.Ctx) error {
 	tenantID := kernel.NewTenantID(c.Params("id"))
-	var req struct {
-		Reason string `json:"reason"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[tenant.SuspendTenantRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.SuspendTenant(c.Context(), tenantID, req.Reason); err != nil {
@@ -114,9 +112,9 @@ func (h *TenantHandlers) ActivateTenant(c *fiber.Ctx) error {
 
 func (h *TenantHandlers) UpgradePlan(c *fiber.Ctx) error {
 	tenantID := kernel.NewTenantID(c.Params("id"))
-	var req tenant.UpgradePlanRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[tenant.UpgradePlanRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.UpgradeTenantPlan(c.Context(), tenantID, req.NewPlan); err != nil {
@@ -163,9 +161,9 @@ func (h *TenantHandlers) GetTenantConfig(c *fiber.Ctx) error {
 
 func (h *TenantHandlers) SetTenantConfig(c *fiber.Ctx) error {
 	tenantID := kernel.NewTenantID(c.Params("id"))
-	var req tenant.SetConfigRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	req, err := kernel.BindAndValidate[tenant.SetConfigRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.service.SetTenantConfig(c.Context(), tenantID, req.Key, req.Value); err != nil {

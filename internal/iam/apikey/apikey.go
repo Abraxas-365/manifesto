@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -136,12 +137,25 @@ func (k *APIKey) ToDTO() APIKeyDTO {
 }
 
 type CreateAPIKeyRequest struct {
-	Name        string         `json:"name" validate:"required,min=3"`
+	Name        string         `json:"name"`
 	Description string         `json:"description"`
-	Scopes      []string       `json:"scopes" validate:"required,min=1"`
+	Scopes      []string       `json:"scopes"`
 	ExpiresIn   *int           `json:"expires_in"` // Days until expiration
-	Environment string         `json:"environment" validate:"required,oneof=live test"`
+	Environment string         `json:"environment"`
 	UserID      *kernel.UserID `json:"user_id"` // Optional: associate with specific user
+}
+
+func (r *CreateAPIKeyRequest) Validate() error {
+	if utf8.RuneCountInString(strings.TrimSpace(r.Name)) < 3 {
+		return errx.Validation("Name is required and must be at least 3 characters").WithDetail("field", "name")
+	}
+	if len(r.Scopes) == 0 {
+		return errx.Validation("At least one scope is required").WithDetail("field", "scopes")
+	}
+	if r.Environment != "live" && r.Environment != "test" {
+		return errx.Validation("Environment must be 'live' or 'test'").WithDetail("field", "environment")
+	}
+	return nil
 }
 
 type CreateAPIKeyResponse struct {
@@ -151,10 +165,17 @@ type CreateAPIKeyResponse struct {
 }
 
 type UpdateAPIKeyRequest struct {
-	Name        *string  `json:"name,omitempty" validate:"omitempty,min=3"`
+	Name        *string  `json:"name,omitempty"`
 	Description *string  `json:"description,omitempty"`
 	Scopes      []string `json:"scopes,omitempty"`
 	IsActive    *bool    `json:"is_active,omitempty"`
+}
+
+func (r *UpdateAPIKeyRequest) Validate() error {
+	if r.Name != nil && utf8.RuneCountInString(strings.TrimSpace(*r.Name)) < 3 {
+		return errx.Validation("Name must be at least 3 characters").WithDetail("field", "name")
+	}
+	return nil
 }
 
 type APIKeyListResponse struct {

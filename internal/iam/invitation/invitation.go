@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
@@ -178,15 +180,31 @@ func (i *Invitation) ToDTO() InvitationDetailsDTO {
 
 // CreateInvitationRequest represents a request to create an invitation
 type CreateInvitationRequest struct {
-	Email     string   `json:"email" validate:"required,email"`
+	Email     string   `json:"email"`
 	Scopes    []string `json:"scopes,omitempty"`
 	RoleID    *string  `json:"role_id,omitempty"`    // Optional role to assign on accept
 	ExpiresIn *int     `json:"expires_in,omitempty"` // Days until expiration (default: 7)
 }
 
+// Validate validates the CreateInvitationRequest
+func (r *CreateInvitationRequest) Validate() error {
+	if _, err := mail.ParseAddress(r.Email); err != nil {
+		return errx.Validation("A valid email is required").WithDetail("field", "email")
+	}
+	return nil
+}
+
 // AcceptInvitationRequest represents a request to accept an invitation
 type AcceptInvitationRequest struct {
-	Token string `json:"token" validate:"required"`
+	Token string `json:"token"`
+}
+
+// Validate validates the AcceptInvitationRequest
+func (r *AcceptInvitationRequest) Validate() error {
+	if strings.TrimSpace(r.Token) == "" {
+		return errx.Validation("Token is required").WithDetail("field", "token")
+	}
+	return nil
 }
 
 // InvitationResponse represents a response with invitation information
@@ -238,7 +256,15 @@ type RevokeInvitationRequest struct {
 
 // ValidateInvitationRequest for validating an invitation token
 type ValidateInvitationRequest struct {
-	Token string `json:"token" validate:"required"`
+	Token string `json:"token"`
+}
+
+// Validate validates the ValidateInvitationRequest
+func (r *ValidateInvitationRequest) Validate() error {
+	if strings.TrimSpace(r.Token) == "" {
+		return errx.Validation("Token is required").WithDetail("field", "token")
+	}
+	return nil
 }
 
 // ValidateInvitationResponse is the invitation validation response

@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationsrv"
+	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -47,11 +48,9 @@ func (h *InvitationHandlers) CreateInvitation(c *fiber.Ctx) error {
 		})
 	}
 
-	var req invitation.CreateInvitationRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	req, err := kernel.BindAndValidate[invitation.CreateInvitationRequest](c)
+	if err != nil {
+		return err
 	}
 
 	if authContext.UserID == nil {
