@@ -3,6 +3,7 @@ package invitationinfra
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
@@ -31,6 +32,48 @@ func (r *PostgresInvitationRepository) getExecutor(ctx context.Context) sqlx.Ext
 	return r.db
 }
 
+// invitationDB is the database representation with pq.StringArray for scopes
+type invitationDB struct {
+	ID         string         `db:"id"`
+	TenantID   string         `db:"tenant_id"`
+	Email      string         `db:"email"`
+	Token      string         `db:"token"`
+	Scopes     pq.StringArray `db:"scopes"`
+	RoleID     *string        `db:"role_id"`
+	Status     string         `db:"status"`
+	InvitedBy  string         `db:"invited_by"`
+	ExpiresAt  time.Time      `db:"expires_at"`
+	AcceptedAt *time.Time     `db:"accepted_at"`
+	AcceptedBy *string        `db:"accepted_by"`
+	CreatedAt  time.Time      `db:"created_at"`
+	UpdatedAt  time.Time      `db:"updated_at"`
+}
+
+// toDomain converts database model to domain model
+func (db *invitationDB) toDomain() (*invitation.Invitation, error) {
+	inv := &invitation.Invitation{
+		ID:         db.ID,
+		TenantID:   kernel.TenantID(db.TenantID),
+		Email:      db.Email,
+		Token:      db.Token,
+		Scopes:     []string(db.Scopes),
+		RoleID:     db.RoleID,
+		Status:     invitation.InvitationStatus(db.Status),
+		InvitedBy:  kernel.UserID(db.InvitedBy),
+		ExpiresAt:  db.ExpiresAt,
+		AcceptedAt: db.AcceptedAt,
+		CreatedAt:  db.CreatedAt,
+		UpdatedAt:  db.UpdatedAt,
+	}
+
+	if db.AcceptedBy != nil {
+		acceptedBy := kernel.UserID(*db.AcceptedBy)
+		inv.AcceptedBy = &acceptedBy
+	}
+
+	return inv, nil
+}
+
 // FindByID finds an invitation by ID
 func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) (*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
@@ -42,8 +85,8 @@ func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) 
 		FROM invitations
 		WHERE id = $1`
 
-	var inv invitation.Invitation
-	err := sqlx.GetContext(ctx, executor, &inv, query, id)
+	var dbInv invitationDB
+	err := sqlx.GetContext(ctx, executor, &dbInv, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, invitation.ErrInvitationNotFound().WithDetail("invitation_id", id)
@@ -52,7 +95,7 @@ func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) 
 			WithDetail("invitation_id", id)
 	}
 
-	return &inv, nil
+	return dbInv.toDomain()
 }
 
 // FindByToken finds an invitation by token
@@ -66,8 +109,8 @@ func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token st
 		FROM invitations
 		WHERE token = $1`
 
-	var inv invitation.Invitation
-	err := sqlx.GetContext(ctx, executor, &inv, query, token)
+	var dbInv invitationDB
+	err := sqlx.GetContext(ctx, executor, &dbInv, query, token)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, invitation.ErrInvitationNotFound().WithDetail("token", token)
@@ -75,7 +118,7 @@ func (r *PostgresInvitationRepository) FindByToken(ctx context.Context, token st
 		return nil, errx.Wrap(err, "failed to find invitation by token", errx.TypeInternal)
 	}
 
-	return &inv, nil
+	return dbInv.toDomain()
 }
 
 // FindByEmail finds invitations by email
@@ -90,17 +133,21 @@ func (r *PostgresInvitationRepository) FindByEmail(ctx context.Context, email st
 		WHERE email = $1 AND tenant_id = $2
 		ORDER BY created_at DESC`
 
-	var invitations []invitation.Invitation
-	err := sqlx.SelectContext(ctx, executor, &invitations, query, email, tenantID.String())
+	var dbInvitations []invitationDB
+	err := sqlx.SelectContext(ctx, executor, &dbInvitations, query, email, tenantID.String())
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find invitations by email", errx.TypeInternal).
 			WithDetail("email", email)
 	}
 
 	// Convert to slice of pointers
-	result := make([]*invitation.Invitation, len(invitations))
-	for i := range invitations {
-		result[i] = &invitations[i]
+	result := make([]*invitation.Invitation, len(dbInvitations))
+	for i := range dbInvitations {
+		domainInv, err := dbInvitations[i].toDomain()
+		if err != nil {
+			return nil, err
+		}
+		result[i] = domainInv
 	}
 
 	return result, nil
@@ -119,8 +166,8 @@ func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, e
 		ORDER BY created_at DESC
 		LIMIT 1`
 
-	var inv invitation.Invitation
-	err := sqlx.GetContext(ctx, executor, &inv, query, email, tenantID.String())
+	var dbInv invitationDB
+	err := sqlx.GetContext(ctx, executor, &dbInv, query, email, tenantID.String())
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, invitation.ErrInvitationNotFound().WithDetail("email", email)
@@ -129,7 +176,7 @@ func (r *PostgresInvitationRepository) FindPendingByEmail(ctx context.Context, e
 			WithDetail("email", email)
 	}
 
-	return &inv, nil
+	return dbInv.toDomain()
 }
 
 // FindByTenant finds all invitations for a tenant
@@ -144,17 +191,21 @@ func (r *PostgresInvitationRepository) FindByTenant(ctx context.Context, tenantI
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC`
 
-	var invitations []invitation.Invitation
-	err := sqlx.SelectContext(ctx, executor, &invitations, query, tenantID.String())
+	var dbInvitations []invitationDB
+	err := sqlx.SelectContext(ctx, executor, &dbInvitations, query, tenantID.String())
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find invitations by tenant", errx.TypeInternal).
 			WithDetail("tenant_id", tenantID.String())
 	}
 
 	// Convert to slice of pointers
-	result := make([]*invitation.Invitation, len(invitations))
-	for i := range invitations {
-		result[i] = &invitations[i]
+	result := make([]*invitation.Invitation, len(dbInvitations))
+	for i := range dbInvitations {
+		domainInv, err := dbInvitations[i].toDomain()
+		if err != nil {
+			return nil, err
+		}
+		result[i] = domainInv
 	}
 
 	return result, nil
@@ -172,17 +223,21 @@ func (r *PostgresInvitationRepository) FindPendingByTenant(ctx context.Context, 
 		WHERE tenant_id = $1 AND status = 'PENDING' AND expires_at > NOW()
 		ORDER BY created_at DESC`
 
-	var invitations []invitation.Invitation
-	err := sqlx.SelectContext(ctx, executor, &invitations, query, tenantID.String())
+	var dbInvitations []invitationDB
+	err := sqlx.SelectContext(ctx, executor, &dbInvitations, query, tenantID.String())
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find pending invitations", errx.TypeInternal).
 			WithDetail("tenant_id", tenantID.String())
 	}
 
 	// Convert to slice of pointers
-	result := make([]*invitation.Invitation, len(invitations))
-	for i := range invitations {
-		result[i] = &invitations[i]
+	result := make([]*invitation.Invitation, len(dbInvitations))
+	for i := range dbInvitations {
+		domainInv, err := dbInvitations[i].toDomain()
+		if err != nil {
+			return nil, err
+		}
+		result[i] = domainInv
 	}
 
 	return result, nil
@@ -199,16 +254,20 @@ func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invi
 		FROM invitations
 		WHERE status = 'PENDING' AND expires_at < NOW()`
 
-	var invitations []invitation.Invitation
-	err := sqlx.SelectContext(ctx, executor, &invitations, query)
+	var dbInvitations []invitationDB
+	err := sqlx.SelectContext(ctx, executor, &dbInvitations, query)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to find expired invitations", errx.TypeInternal)
 	}
 
 	// Convert to slice of pointers
-	result := make([]*invitation.Invitation, len(invitations))
-	for i := range invitations {
-		result[i] = &invitations[i]
+	result := make([]*invitation.Invitation, len(dbInvitations))
+	for i := range dbInvitations {
+		domainInv, err := dbInvitations[i].toDomain()
+		if err != nil {
+			return nil, err
+		}
+		result[i] = domainInv
 	}
 
 	return result, nil

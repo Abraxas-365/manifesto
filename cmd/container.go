@@ -14,6 +14,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxlocal"
 	"github.com/Abraxas-365/manifesto/internal/fsx/fsxs3"
 	"github.com/Abraxas-365/manifesto/internal/iam/iamcontainer"
+	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/Abraxas-365/manifesto/internal/logx"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -130,9 +131,11 @@ func (c *Container) initModules() {
 	logx.Info("📦 Initializing modules...")
 
 	c.IAM = iamcontainer.New(iamcontainer.Deps{
-		DB:    c.DB,
-		Redis: c.Redis,
-		Cfg:   c.Config,
+		DB:                 c.DB,
+		Redis:              c.Redis,
+		Cfg:                c.Config,
+		OTPNotifier:        &consoleOTPNotifier{},
+		InvitationNotifier: &consoleInvitationNotifier{},
 	})
 }
 
@@ -180,4 +183,22 @@ func repeatString(s string, count int) string {
 		result += s
 	}
 	return result
+}
+
+// ---------------------------------------------------------------------------
+// Console notifiers (dev/test fallback — logs to stdout instead of sending)
+// ---------------------------------------------------------------------------
+
+type consoleOTPNotifier struct{}
+
+func (n *consoleOTPNotifier) SendOTP(_ context.Context, contact string, code string) error {
+	logx.Infof("📧 [OTP] Sending code %s to %s", code, contact)
+	return nil
+}
+
+type consoleInvitationNotifier struct{}
+
+func (n *consoleInvitationNotifier) SendInvitation(_ context.Context, email string, token string, tenantID kernel.TenantID, invitedBy kernel.UserID) error {
+	logx.Infof("📧 [Invitation] Sending invitation to %s (tenant: %s, by: %s)", email, tenantID, invitedBy)
+	return nil
 }
