@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
-	"github.com/Abraxas-365/manifesto/internal/ai/models"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/models"
 )
 
 func TestMain(m *testing.M) {

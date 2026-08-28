@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Abraxas-365/manifesto/internal/ai/models"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/models"
 )
 
 // Capability describes what request knobs a model supports.
