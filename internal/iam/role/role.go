@@ -13,7 +13,7 @@ import (
 // Role represents a named collection of scopes that can be assigned to users.
 // Similar to AWS IAM managed policies attached to roles.
 type Role struct {
-	ID          string          `db:"id" json:"id"`
+	ID          kernel.RoleID   `db:"id" json:"id"`
 	TenantID    kernel.TenantID `db:"tenant_id" json:"tenant_id"`
 	Name        string          `db:"name" json:"name"`
 	Description string          `db:"description" json:"description,omitempty"`
@@ -36,7 +36,7 @@ func (r *Role) SetScopes(scopes []string) {
 // UserRole represents the assignment of a role to a user
 type UserRole struct {
 	UserID     kernel.UserID   `db:"user_id" json:"user_id"`
-	RoleID     string          `db:"role_id" json:"role_id"`
+	RoleID     kernel.RoleID   `db:"role_id" json:"role_id"`
 	TenantID   kernel.TenantID `db:"tenant_id" json:"tenant_id"`
 	AssignedAt time.Time       `db:"assigned_at" json:"assigned_at"`
 }
@@ -46,7 +46,7 @@ type UserRole struct {
 // ============================================================================
 
 type RoleDTO struct {
-	ID          string          `json:"id"`
+	ID          kernel.RoleID   `json:"id"`
 	TenantID    kernel.TenantID `json:"tenant_id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`

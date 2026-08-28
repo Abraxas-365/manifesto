@@ -77,7 +77,8 @@ type Container struct {
 	RoleHandlers       *roleapi.RoleHandlers
 	ScopeHandlers      *userapi.ScopeHandlers
 	UserHandlers       *userapi.UserHandlers
-	TenantHandlers     *tenantapi.TenantHandlers
+	TenantHandlers         *tenantapi.TenantHandlers
+	PlatformTenantHandlers *tenantapi.PlatformTenantHandlers
 
 	// Middleware — needed by cmd/ to protect route groups
 	UnifiedAuthMiddleware *auth.UnifiedAuthMiddleware

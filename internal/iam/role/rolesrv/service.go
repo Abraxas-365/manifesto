@@ -55,7 +55,7 @@ func (s *RoleService) CreateRole(
 	}
 
 	newRole := &role.Role{
-		ID:          uuid.NewString(),
+		ID:          kernel.NewRoleID(uuid.NewString()),
 		TenantID:    tenantID,
 		Name:        req.Name,
 		Description: req.Description,
@@ -73,7 +73,7 @@ func (s *RoleService) CreateRole(
 
 func (s *RoleService) GetRoleByID(
 	ctx context.Context,
-	roleID string,
+	roleID kernel.RoleID,
 	tenantID kernel.TenantID,
 ) (*role.RoleDTO, error) {
 	r, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
@@ -106,7 +106,7 @@ func (s *RoleService) GetTenantRoles(
 
 func (s *RoleService) UpdateRole(
 	ctx context.Context,
-	roleID string,
+	roleID kernel.RoleID,
 	tenantID kernel.TenantID,
 	req role.UpdateRoleRequest,
 ) (*role.RoleDTO, error) {
@@ -145,7 +145,7 @@ func (s *RoleService) UpdateRole(
 
 func (s *RoleService) DeleteRole(
 	ctx context.Context,
-	roleID string,
+	roleID kernel.RoleID,
 	tenantID kernel.TenantID,
 ) error {
 	_, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
@@ -159,7 +159,7 @@ func (s *RoleService) DeleteRole(
 // AssignRoleToUser assigns a role to a user
 func (s *RoleService) AssignRoleToUser(
 	ctx context.Context,
-	roleID string,
+	roleID kernel.RoleID,
 	userID kernel.UserID,
 	tenantID kernel.TenantID,
 ) error {
@@ -188,7 +188,7 @@ func (s *RoleService) AssignRoleToUser(
 // UnassignRoleFromUser removes a role from a user
 func (s *RoleService) UnassignRoleFromUser(
 	ctx context.Context,
-	roleID string,
+	roleID kernel.RoleID,
 	userID kernel.UserID,
 	tenantID kernel.TenantID,
 ) error {

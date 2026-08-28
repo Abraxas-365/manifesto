@@ -10,7 +10,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
 	"github.com/Abraxas-365/manifesto/internal/errx"
-	"github.com/Abraxas-365/manifesto/internal/models"
+	"github.com/Abraxas-365/manifesto/internal/ai/models"
 )
 
 // fakeProvider returns a scripted sequence of responses, one per Chat call, and

@@ -95,10 +95,10 @@ func (r *PostgresAPIKeyRepository) update(ctx context.Context, key apikey.APIKey
 }
 
 // FindByID finds an API key by its ID and tenant ID.
-func (r *PostgresAPIKeyRepository) FindByID(ctx context.Context, id string, tenantID kernel.TenantID) (*apikey.APIKey, error) {
+func (r *PostgresAPIKeyRepository) FindByID(ctx context.Context, id kernel.APIKeyID, tenantID kernel.TenantID) (*apikey.APIKey, error) {
 	var key apiKeyPersistence
 	query := `SELECT * FROM api_keys WHERE id = $1 AND tenant_id = $2`
-	err := r.db.GetContext(ctx, &key, query, id, tenantID.String())
+	err := r.db.GetContext(ctx, &key, query, id.String(), tenantID.String())
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, apikey.ErrAPIKeyNotFound()
@@ -158,9 +158,9 @@ func (r *PostgresAPIKeyRepository) FindByUser(ctx context.Context, userID kernel
 }
 
 // Delete removes an API key from the database.
-func (r *PostgresAPIKeyRepository) Delete(ctx context.Context, id string, tenantID kernel.TenantID) error {
+func (r *PostgresAPIKeyRepository) Delete(ctx context.Context, id kernel.APIKeyID, tenantID kernel.TenantID) error {
 	query := `DELETE FROM api_keys WHERE id = $1 AND tenant_id = $2`
-	result, err := r.db.ExecContext(ctx, query, id, tenantID.String())
+	result, err := r.db.ExecContext(ctx, query, id.String(), tenantID.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to delete API key", errx.TypeInternal)
 	}
@@ -176,19 +176,19 @@ func (r *PostgresAPIKeyRepository) Delete(ctx context.Context, id string, tenant
 }
 
 // UpdateLastUsed updates the last used timestamp for a key.
-func (r *PostgresAPIKeyRepository) UpdateLastUsed(ctx context.Context, id string) error {
+func (r *PostgresAPIKeyRepository) UpdateLastUsed(ctx context.Context, id kernel.APIKeyID) error {
 	query := `UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`
-	_, err := r.db.ExecContext(ctx, query, id)
+	_, err := r.db.ExecContext(ctx, query, id.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to update last used time for API key", errx.TypeInternal)
 	}
 	return nil
 }
 
-func (r *PostgresAPIKeyRepository) keyExists(ctx context.Context, id string) (bool, error) {
+func (r *PostgresAPIKeyRepository) keyExists(ctx context.Context, id kernel.APIKeyID) (bool, error) {
 	var exists bool
 	query := `SELECT EXISTS(SELECT 1 FROM api_keys WHERE id = $1)`
-	err := r.db.GetContext(ctx, &exists, query, id)
+	err := r.db.GetContext(ctx, &exists, query, id.String())
 	if err != nil {
 		return false, errx.Wrap(err, "failed to check key existence", errx.TypeInternal)
 	}
@@ -215,7 +215,7 @@ type apiKeyPersistence struct {
 // toPersistence converts the domain model to a persistence model.
 func toPersistence(key apikey.APIKey) apiKeyPersistence {
 	return apiKeyPersistence{
-		ID:          key.ID,
+		ID:          key.ID.String(),
 		KeyHash:     key.KeyHash,
 		KeyPrefix:   key.KeyPrefix,
 		TenantID:    key.TenantID,
@@ -234,7 +234,7 @@ func toPersistence(key apikey.APIKey) apiKeyPersistence {
 // toDomain converts the persistence model to the domain model.
 func toDomain(p apiKeyPersistence) apikey.APIKey {
 	return apikey.APIKey{
-		ID:          p.ID,
+		ID:          kernel.NewAPIKeyID(p.ID),
 		KeyHash:     p.KeyHash,
 		KeyPrefix:   p.KeyPrefix,
 		TenantID:    p.TenantID,

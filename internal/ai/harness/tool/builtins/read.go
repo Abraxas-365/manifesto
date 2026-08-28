@@ -13,7 +13,7 @@ import (
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/fsys"
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/tool"
-	"github.com/Abraxas-365/manifesto/internal/imageutil"
+	"github.com/Abraxas-365/manifesto/internal/ai/harness/imageutil"
 )
 
 // MaxReadBytes rejects whole-file reads larger than this before loading.

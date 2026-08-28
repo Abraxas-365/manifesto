@@ -150,6 +150,9 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.IAM.UserHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
 	container.IAM.TenantHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
 
+	// Platform admin routes
+	container.IAM.PlatformTenantHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+
 	logx.Info("✅ All routes registered")
 }
 

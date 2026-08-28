@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeysrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
+	iamscopes "github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -20,12 +21,12 @@ func NewAPIKeyHandlers(service *apikeysrv.APIKeyService) *APIKeyHandlers {
 func (h *APIKeyHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	keys := router.Group("/api-keys", authMiddleware.Authenticate())
 
-	keys.Post("/", authMiddleware.RequireScope("api_keys:write"), h.CreateAPIKey)
-	keys.Get("/", authMiddleware.RequireScope("api_keys:read"), h.GetTenantAPIKeys)
-	keys.Get("/:id", authMiddleware.RequireScope("api_keys:read"), h.GetAPIKey)
-	keys.Put("/:id", authMiddleware.RequireScope("api_keys:write"), h.UpdateAPIKey)
-	keys.Post("/:id/revoke", authMiddleware.RequireScope("api_keys:revoke"), h.RevokeAPIKey)
-	keys.Delete("/:id", authMiddleware.RequireScope("api_keys:delete"), h.DeleteAPIKey)
+	keys.Post("/", authMiddleware.RequireScope(iamscopes.ScopeAPIKeysWrite), h.CreateAPIKey)
+	keys.Get("/", authMiddleware.RequireScope(iamscopes.ScopeAPIKeysRead), h.GetTenantAPIKeys)
+	keys.Get("/:id", authMiddleware.RequireScope(iamscopes.ScopeAPIKeysRead), h.GetAPIKey)
+	keys.Put("/:id", authMiddleware.RequireScope(iamscopes.ScopeAPIKeysWrite), h.UpdateAPIKey)
+	keys.Post("/:id/revoke", authMiddleware.RequireScope(iamscopes.ScopeAPIKeysRevoke), h.RevokeAPIKey)
+	keys.Delete("/:id", authMiddleware.RequireScope(iamscopes.ScopeAPIKeysDelete), h.DeleteAPIKey)
 }
 
 func (h *APIKeyHandlers) CreateAPIKey(c *fiber.Ctx) error {
@@ -67,7 +68,7 @@ func (h *APIKeyHandlers) GetAPIKey(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	keyID := c.Params("id")
+	keyID := kernel.NewAPIKeyID(c.Params("id"))
 	key, err := h.service.GetAPIKeyByID(c.Context(), keyID, authContext.TenantID)
 	if err != nil {
 		return err
@@ -82,7 +83,7 @@ func (h *APIKeyHandlers) UpdateAPIKey(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	keyID := c.Params("id")
+	keyID := kernel.NewAPIKeyID(c.Params("id"))
 	req, err := kernel.BindAndValidate[apikey.UpdateAPIKeyRequest](c)
 	if err != nil {
 		return err
@@ -102,7 +103,7 @@ func (h *APIKeyHandlers) RevokeAPIKey(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	keyID := c.Params("id")
+	keyID := kernel.NewAPIKeyID(c.Params("id"))
 	if err := h.service.RevokeAPIKey(c.Context(), keyID, authContext.TenantID); err != nil {
 		return err
 	}
@@ -116,7 +117,7 @@ func (h *APIKeyHandlers) DeleteAPIKey(c *fiber.Ctx) error {
 		return iam.ErrUnauthorized()
 	}
 
-	keyID := c.Params("id")
+	keyID := kernel.NewAPIKeyID(c.Params("id"))
 	if err := h.service.DeleteAPIKey(c.Context(), keyID, authContext.TenantID); err != nil {
 		return err
 	}

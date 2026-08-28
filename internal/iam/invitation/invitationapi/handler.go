@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationsrv"
+	iamscopes "github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -26,12 +27,12 @@ func (h *InvitationHandlers) RegisterRoutes(router fiber.Router, authMiddleware 
 	invitations := router.Group("/invitations", authMiddleware.Authenticate())
 
 	// Protected routes
-	invitations.Post("/", authMiddleware.RequireScope("invitations:write"), h.CreateInvitation)
-	invitations.Get("/", authMiddleware.RequireScope("invitations:read"), h.GetTenantInvitations)
-	invitations.Get("/pending", authMiddleware.RequireScope("invitations:read"), h.GetPendingInvitations)
-	invitations.Get("/:id", authMiddleware.RequireScope("invitations:read"), h.GetInvitationByID)
-	invitations.Delete("/:id", authMiddleware.RequireScope("invitations:delete"), h.DeleteInvitation)
-	invitations.Post("/:id/revoke", authMiddleware.RequireScope("invitations:revoke"), h.RevokeInvitation)
+	invitations.Post("/", authMiddleware.RequireScope(iamscopes.ScopeInvitationsWrite), h.CreateInvitation)
+	invitations.Get("/", authMiddleware.RequireScope(iamscopes.ScopeInvitationsRead), h.GetTenantInvitations)
+	invitations.Get("/pending", authMiddleware.RequireScope(iamscopes.ScopeInvitationsRead), h.GetPendingInvitations)
+	invitations.Get("/:id", authMiddleware.RequireScope(iamscopes.ScopeInvitationsRead), h.GetInvitationByID)
+	invitations.Delete("/:id", authMiddleware.RequireScope(iamscopes.ScopeInvitationsDelete), h.DeleteInvitation)
+	invitations.Post("/:id/revoke", authMiddleware.RequireScope(iamscopes.ScopeInvitationsRevoke), h.RevokeInvitation)
 
 	// Public routes
 	public := router.Group("/invitations/public")
@@ -115,12 +116,13 @@ func (h *InvitationHandlers) GetInvitationByID(c *fiber.Ctx) error {
 		})
 	}
 
-	invitationID := c.Params("id")
-	if invitationID == "" {
+	invitationIDParam := c.Params("id")
+	if invitationIDParam == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "invitation_id is required",
 		})
 	}
+	invitationID := kernel.NewInvitationID(invitationIDParam)
 
 	invitation, err := h.service.GetInvitationByID(c.Context(), invitationID, authContext.TenantID)
 	if err != nil {
@@ -179,12 +181,13 @@ func (h *InvitationHandlers) RevokeInvitation(c *fiber.Ctx) error {
 		})
 	}
 
-	invitationID := c.Params("id")
-	if invitationID == "" {
+	invitationIDParam := c.Params("id")
+	if invitationIDParam == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "invitation_id is required",
 		})
 	}
+	invitationID := kernel.NewInvitationID(invitationIDParam)
 
 	err := h.service.RevokeInvitation(c.Context(), invitationID, authContext.TenantID)
 	if err != nil {
@@ -207,12 +210,13 @@ func (h *InvitationHandlers) DeleteInvitation(c *fiber.Ctx) error {
 		})
 	}
 
-	invitationID := c.Params("id")
-	if invitationID == "" {
+	invitationIDParam := c.Params("id")
+	if invitationIDParam == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "invitation_id is required",
 		})
 	}
+	invitationID := kernel.NewInvitationID(invitationIDParam)
 
 	err := h.service.DeleteInvitation(c.Context(), invitationID, authContext.TenantID)
 	if err != nil {

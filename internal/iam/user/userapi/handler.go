@@ -3,6 +3,7 @@ package userapi
 import (
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
+	iamscopes "github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/usersrv"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -20,13 +21,13 @@ func NewUserHandlers(service *usersrv.UserService) *UserHandlers {
 func (h *UserHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	users := router.Group("/users", authMiddleware.Authenticate())
 
-	users.Post("/", authMiddleware.RequireScope("users:write"), h.CreateUser)
-	users.Get("/", authMiddleware.RequireScope("users:read"), h.GetTenantUsers)
-	users.Get("/:id", authMiddleware.RequireScope("users:read"), h.GetUser)
-	users.Put("/:id", authMiddleware.RequireScope("users:write"), h.UpdateUser)
-	users.Delete("/:id", authMiddleware.RequireScope("users:delete"), h.DeleteUser)
-	users.Post("/:id/activate", authMiddleware.RequireScope("users:write"), h.ActivateUser)
-	users.Post("/:id/suspend", authMiddleware.RequireScope("users:write"), h.SuspendUser)
+	users.Post("/", authMiddleware.RequireScope(iamscopes.ScopeUsersWrite), h.CreateUser)
+	users.Get("/", authMiddleware.RequireScope(iamscopes.ScopeUsersRead), h.GetTenantUsers)
+	users.Get("/:id", authMiddleware.RequireScope(iamscopes.ScopeUsersRead), h.GetUser)
+	users.Put("/:id", authMiddleware.RequireScope(iamscopes.ScopeUsersWrite), h.UpdateUser)
+	users.Delete("/:id", authMiddleware.RequireScope(iamscopes.ScopeUsersDelete), h.DeleteUser)
+	users.Post("/:id/activate", authMiddleware.RequireScope(iamscopes.ScopeUsersWrite), h.ActivateUser)
+	users.Post("/:id/suspend", authMiddleware.RequireScope(iamscopes.ScopeUsersWrite), h.SuspendUser)
 }
 
 func (h *UserHandlers) CreateUser(c *fiber.Ctx) error {

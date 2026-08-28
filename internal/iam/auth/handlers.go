@@ -575,7 +575,7 @@ func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUse
 	var tenantEntity *tenant.Tenant
 	var invitationToken string
 	var invitationScopes []string
-	var invitationRoleID *string
+	var invitationRoleID *kernel.RoleID
 	var err error
 
 	// Check if there's an invitation token
@@ -724,8 +724,8 @@ func (ah *AuthHandlers) resolveScopes(ctx context.Context, userEntity *user.User
 }
 
 // assignInvitationRole assigns the invitation's role to the user if present
-func (ah *AuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *string) {
-	if roleID == nil || *roleID == "" {
+func (ah *AuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *kernel.RoleID) {
+	if roleID == nil || roleID.IsEmpty() {
 		return
 	}
 	userRole := role.UserRole{

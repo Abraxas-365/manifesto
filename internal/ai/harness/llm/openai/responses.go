@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/Abraxas-365/manifesto/internal/ai/harness/llm"
-	"github.com/Abraxas-365/manifesto/internal/models"
+	"github.com/Abraxas-365/manifesto/internal/ai/models"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"

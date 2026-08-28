@@ -29,19 +29,19 @@ const (
 
 // Invitation is the entity that represents a user invitation
 type Invitation struct {
-	ID         string           `db:"id" json:"id"`
-	TenantID   kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
-	Email      string           `db:"email" json:"email"`
-	Token      string           `db:"token" json:"token"`
-	Scopes     []string         `db:"scopes" json:"scopes"`
-	RoleID     *string          `db:"role_id" json:"role_id,omitempty"` // Optional role to assign on accept
-	Status     InvitationStatus `db:"status" json:"status"`
-	InvitedBy  kernel.UserID    `db:"invited_by" json:"invited_by"`
-	ExpiresAt  time.Time        `db:"expires_at" json:"expires_at"`
-	AcceptedAt *time.Time       `db:"accepted_at" json:"accepted_at,omitempty"`
-	AcceptedBy *kernel.UserID   `db:"accepted_by" json:"accepted_by,omitempty"`
-	CreatedAt  time.Time        `db:"created_at" json:"created_at"`
-	UpdatedAt  time.Time        `db:"updated_at" json:"updated_at"`
+	ID         kernel.InvitationID `db:"id" json:"id"`
+	TenantID   kernel.TenantID     `db:"tenant_id" json:"tenant_id"`
+	Email      string              `db:"email" json:"email"`
+	Token      string              `db:"token" json:"token"`
+	Scopes     []string            `db:"scopes" json:"scopes"`
+	RoleID     *kernel.RoleID      `db:"role_id" json:"role_id,omitempty"` // Optional role to assign on accept
+	Status     InvitationStatus    `db:"status" json:"status"`
+	InvitedBy  kernel.UserID       `db:"invited_by" json:"invited_by"`
+	ExpiresAt  time.Time           `db:"expires_at" json:"expires_at"`
+	AcceptedAt *time.Time          `db:"accepted_at" json:"accepted_at,omitempty"`
+	AcceptedBy *kernel.UserID      `db:"accepted_by" json:"accepted_by,omitempty"`
+	CreatedAt  time.Time           `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time           `db:"updated_at" json:"updated_at"`
 }
 
 // ============================================================================
@@ -53,7 +53,7 @@ type Invitation struct {
 // ============================================================================
 
 // GetID returns the invitation ID
-func (i *Invitation) GetID() string {
+func (i *Invitation) GetID() kernel.InvitationID {
 	return i.ID
 }
 
@@ -73,7 +73,7 @@ func (i *Invitation) GetScopes() []string {
 }
 
 // GetRoleID returns the invitation role ID
-func (i *Invitation) GetRoleID() *string {
+func (i *Invitation) GetRoleID() *kernel.RoleID {
 	return i.RoleID
 }
 
@@ -148,15 +148,15 @@ func (i *Invitation) HasAnyScope(scopes ...string) bool {
 
 // InvitationDetailsDTO contains basic invitation information
 type InvitationDetailsDTO struct {
-	ID         string           `json:"id"`
-	TenantID   kernel.TenantID  `json:"tenant_id"`
-	Email      string           `json:"email"`
-	Status     InvitationStatus `json:"status"`
-	Scopes     []string         `json:"scopes"`
-	RoleID     *string          `json:"role_id,omitempty"`
-	ExpiresAt  time.Time        `json:"expires_at"`
-	AcceptedAt *time.Time       `json:"accepted_at,omitempty"`
-	CreatedAt  time.Time        `json:"created_at"`
+	ID         kernel.InvitationID `json:"id"`
+	TenantID   kernel.TenantID     `json:"tenant_id"`
+	Email      string              `json:"email"`
+	Status     InvitationStatus    `json:"status"`
+	Scopes     []string            `json:"scopes"`
+	RoleID     *kernel.RoleID      `json:"role_id,omitempty"`
+	ExpiresAt  time.Time           `json:"expires_at"`
+	AcceptedAt *time.Time          `json:"accepted_at,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
 }
 
 // ToDTO converts the Invitation entity to InvitationDetailsDTO
@@ -180,10 +180,10 @@ func (i *Invitation) ToDTO() InvitationDetailsDTO {
 
 // CreateInvitationRequest represents a request to create an invitation
 type CreateInvitationRequest struct {
-	Email     string   `json:"email"`
-	Scopes    []string `json:"scopes,omitempty"`
-	RoleID    *string  `json:"role_id,omitempty"`    // Optional role to assign on accept
-	ExpiresIn *int     `json:"expires_in,omitempty"` // Days until expiration (default: 7)
+	Email     string         `json:"email"`
+	Scopes    []string       `json:"scopes,omitempty"`
+	RoleID    *kernel.RoleID `json:"role_id,omitempty"`    // Optional role to assign on accept
+	ExpiresIn *int           `json:"expires_in,omitempty"` // Days until expiration (default: 7)
 }
 
 // Validate validates the CreateInvitationRequest
@@ -308,7 +308,7 @@ var (
 	CodeInvitationAlreadyRevoked  = ErrRegistry.Register("ALREADY_REVOKED", errx.TypeBusiness, http.StatusConflict, "Invitation already revoked")
 	CodeInvitationAlreadyExists   = ErrRegistry.Register("ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "A pending invitation already exists for this email")
 	CodeUserAlreadyExists         = ErrRegistry.Register("USER_ALREADY_EXISTS", errx.TypeConflict, http.StatusConflict, "User already exists in this tenant")
-	CodeInvalidScopes = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
+	CodeInvalidScopes             = ErrRegistry.Register("INVALID_SCOPES", errx.TypeValidation, http.StatusBadRequest, "Invalid scopes")
 )
 
 // Helper functions

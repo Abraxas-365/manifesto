@@ -52,18 +52,22 @@ type invitationDB struct {
 // toDomain converts database model to domain model
 func (db *invitationDB) toDomain() (*invitation.Invitation, error) {
 	inv := &invitation.Invitation{
-		ID:         db.ID,
+		ID:         kernel.NewInvitationID(db.ID),
 		TenantID:   kernel.TenantID(db.TenantID),
 		Email:      db.Email,
 		Token:      db.Token,
 		Scopes:     []string(db.Scopes),
-		RoleID:     db.RoleID,
 		Status:     invitation.InvitationStatus(db.Status),
 		InvitedBy:  kernel.UserID(db.InvitedBy),
 		ExpiresAt:  db.ExpiresAt,
 		AcceptedAt: db.AcceptedAt,
 		CreatedAt:  db.CreatedAt,
 		UpdatedAt:  db.UpdatedAt,
+	}
+
+	if db.RoleID != nil {
+		roleID := kernel.NewRoleID(*db.RoleID)
+		inv.RoleID = &roleID
 	}
 
 	if db.AcceptedBy != nil {
@@ -75,7 +79,7 @@ func (db *invitationDB) toDomain() (*invitation.Invitation, error) {
 }
 
 // FindByID finds an invitation by ID
-func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) (*invitation.Invitation, error) {
+func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id kernel.InvitationID) (*invitation.Invitation, error) {
 	executor := r.getExecutor(ctx)
 
 	query := `
@@ -86,13 +90,13 @@ func (r *PostgresInvitationRepository) FindByID(ctx context.Context, id string) 
 		WHERE id = $1`
 
 	var dbInv invitationDB
-	err := sqlx.GetContext(ctx, executor, &dbInv, query, id)
+	err := sqlx.GetContext(ctx, executor, &dbInv, query, id.String())
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, invitation.ErrInvitationNotFound().WithDetail("invitation_id", id)
+			return nil, invitation.ErrInvitationNotFound().WithDetail("invitation_id", id.String())
 		}
 		return nil, errx.Wrap(err, "failed to find invitation by id", errx.TypeInternal).
-			WithDetail("invitation_id", id)
+			WithDetail("invitation_id", id.String())
 	}
 
 	return dbInv.toDomain()
@@ -276,7 +280,7 @@ func (r *PostgresInvitationRepository) FindExpired(ctx context.Context) ([]*invi
 // Save saves or updates an invitation
 func (r *PostgresInvitationRepository) Save(ctx context.Context, inv invitation.Invitation) error {
 	// Check if the invitation already exists
-	exists, err := r.invitationExists(ctx, inv.ID)
+	exists, err := r.invitationExists(ctx, inv.ID.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to check invitation existence", errx.TypeInternal)
 	}
@@ -300,12 +304,12 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 		)`
 
 	_, err := executor.ExecContext(ctx, query,
-		inv.ID,
+		inv.ID.String(),
 		inv.TenantID,
 		inv.Email,
 		inv.Token,
 		pq.Array(inv.Scopes),
-		inv.RoleID,
+		fromRoleID(inv.RoleID),
 		inv.Status,
 		inv.InvitedBy,
 		inv.ExpiresAt,
@@ -324,7 +328,7 @@ func (r *PostgresInvitationRepository) create(ctx context.Context, inv invitatio
 			}
 		}
 		return errx.Wrap(err, "failed to create invitation", errx.TypeInternal).
-			WithDetail("invitation_id", inv.ID)
+			WithDetail("invitation_id", inv.ID.String())
 	}
 
 	return nil
@@ -350,17 +354,17 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 		inv.Email,
 		inv.Status,
 		pq.Array(inv.Scopes),
-		inv.RoleID,
+		fromRoleID(inv.RoleID),
 		inv.ExpiresAt,
 		inv.AcceptedAt,
 		inv.AcceptedBy,
 		inv.UpdatedAt,
-		inv.ID,
+		inv.ID.String(),
 	)
 
 	if err != nil {
 		return errx.Wrap(err, "failed to update invitation", errx.TypeInternal).
-			WithDetail("invitation_id", inv.ID)
+			WithDetail("invitation_id", inv.ID.String())
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -369,22 +373,22 @@ func (r *PostgresInvitationRepository) update(ctx context.Context, inv invitatio
 	}
 
 	if rowsAffected == 0 {
-		return invitation.ErrInvitationNotFound().WithDetail("invitation_id", inv.ID)
+		return invitation.ErrInvitationNotFound().WithDetail("invitation_id", inv.ID.String())
 	}
 
 	return nil
 }
 
 // Delete deletes an invitation
-func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) error {
+func (r *PostgresInvitationRepository) Delete(ctx context.Context, id kernel.InvitationID) error {
 	executor := r.getExecutor(ctx)
 
 	query := `DELETE FROM invitations WHERE id = $1`
 
-	result, err := executor.ExecContext(ctx, query, id)
+	result, err := executor.ExecContext(ctx, query, id.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to delete invitation", errx.TypeInternal).
-			WithDetail("invitation_id", id)
+			WithDetail("invitation_id", id.String())
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -393,7 +397,7 @@ func (r *PostgresInvitationRepository) Delete(ctx context.Context, id string) er
 	}
 
 	if rowsAffected == 0 {
-		return invitation.ErrInvitationNotFound().WithDetail("invitation_id", id)
+		return invitation.ErrInvitationNotFound().WithDetail("invitation_id", id.String())
 	}
 
 	return nil
@@ -417,6 +421,15 @@ func (r *PostgresInvitationRepository) ExistsPendingForEmail(ctx context.Context
 	}
 
 	return exists, nil
+}
+
+// fromRoleID converts a *kernel.RoleID to a *string for DB storage
+func fromRoleID(roleID *kernel.RoleID) *string {
+	if roleID == nil {
+		return nil
+	}
+	s := roleID.String()
+	return &s
 }
 
 // invitationExists checks if an invitation exists by ID

@@ -15,7 +15,7 @@ import (
 )
 
 type APIKey struct {
-	ID          string          `db:"id" json:"id"`
+	ID          kernel.APIKeyID `db:"id" json:"id"`
 	KeyHash     string          `db:"key_hash" json:"-"` // Never expose the hash
 	KeyPrefix   string          `db:"key_prefix" json:"key_prefix"`
 	TenantID    kernel.TenantID `db:"tenant_id" json:"tenant_id"`
@@ -107,7 +107,7 @@ func ValidateAPIKeyFormat(key string) bool {
 }
 
 type APIKeyDTO struct {
-	ID          string          `json:"id"`
+	ID          kernel.APIKeyID `json:"id"`
 	KeyPrefix   string          `json:"key_prefix"`
 	TenantID    kernel.TenantID `json:"tenant_id"`
 	UserID      *kernel.UserID  `json:"user_id,omitempty"`

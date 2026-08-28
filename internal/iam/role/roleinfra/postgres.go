@@ -21,7 +21,7 @@ func NewPostgresRoleRepository(db *sqlx.DB) role.RoleRepository {
 }
 
 func (r *PostgresRoleRepository) Save(ctx context.Context, rl role.Role) error {
-	exists, err := r.roleExists(ctx, rl.ID)
+	exists, err := r.roleExists(ctx, rl.ID.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to check role existence", errx.TypeInternal)
 	}
@@ -73,10 +73,10 @@ func (r *PostgresRoleRepository) update(ctx context.Context, rl role.Role) error
 	return nil
 }
 
-func (r *PostgresRoleRepository) FindByID(ctx context.Context, id string, tenantID kernel.TenantID) (*role.Role, error) {
+func (r *PostgresRoleRepository) FindByID(ctx context.Context, id kernel.RoleID, tenantID kernel.TenantID) (*role.Role, error) {
 	var p rolePersistence
 	query := `SELECT * FROM roles WHERE id = $1 AND tenant_id = $2`
-	err := r.db.GetContext(ctx, &p, query, id, tenantID.String())
+	err := r.db.GetContext(ctx, &p, query, id.String(), tenantID.String())
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, role.ErrRoleNotFound()
@@ -111,7 +111,7 @@ func (r *PostgresRoleRepository) FindByTenant(ctx context.Context, tenantID kern
 	return toDomainSlice(roles), nil
 }
 
-func (r *PostgresRoleRepository) Delete(ctx context.Context, id string, tenantID kernel.TenantID) error {
+func (r *PostgresRoleRepository) Delete(ctx context.Context, id kernel.RoleID, tenantID kernel.TenantID) error {
 	// Delete role assignments first, then the role
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -119,12 +119,12 @@ func (r *PostgresRoleRepository) Delete(ctx context.Context, id string, tenantID
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `DELETE FROM user_roles WHERE role_id = $1 AND tenant_id = $2`, id, tenantID.String())
+	_, err = tx.ExecContext(ctx, `DELETE FROM user_roles WHERE role_id = $1 AND tenant_id = $2`, id.String(), tenantID.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to delete role assignments", errx.TypeInternal)
 	}
 
-	result, err := tx.ExecContext(ctx, `DELETE FROM roles WHERE id = $1 AND tenant_id = $2`, id, tenantID.String())
+	result, err := tx.ExecContext(ctx, `DELETE FROM roles WHERE id = $1 AND tenant_id = $2`, id.String(), tenantID.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to delete role", errx.TypeInternal)
 	}
@@ -143,7 +143,7 @@ func (r *PostgresRoleRepository) AssignToUser(ctx context.Context, userRole role
 		VALUES ($1, $2, $3, $4)`
 
 	_, err := r.db.ExecContext(ctx, query,
-		userRole.UserID.String(), userRole.RoleID, userRole.TenantID.String(), userRole.AssignedAt)
+		userRole.UserID.String(), userRole.RoleID.String(), userRole.TenantID.String(), userRole.AssignedAt)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return role.ErrRoleAlreadyAssigned()
@@ -153,9 +153,9 @@ func (r *PostgresRoleRepository) AssignToUser(ctx context.Context, userRole role
 	return nil
 }
 
-func (r *PostgresRoleRepository) UnassignFromUser(ctx context.Context, userID kernel.UserID, roleID string, tenantID kernel.TenantID) error {
+func (r *PostgresRoleRepository) UnassignFromUser(ctx context.Context, userID kernel.UserID, roleID kernel.RoleID, tenantID kernel.TenantID) error {
 	query := `DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2 AND tenant_id = $3`
-	result, err := r.db.ExecContext(ctx, query, userID.String(), roleID, tenantID.String())
+	result, err := r.db.ExecContext(ctx, query, userID.String(), roleID.String(), tenantID.String())
 	if err != nil {
 		return errx.Wrap(err, "failed to unassign role from user", errx.TypeInternal)
 	}
@@ -201,7 +201,7 @@ type rolePersistence struct {
 
 func toPersistence(rl role.Role) rolePersistence {
 	return rolePersistence{
-		ID:          rl.ID,
+		ID:          rl.ID.String(),
 		TenantID:    rl.TenantID,
 		Name:        rl.Name,
 		Description: sql.NullString{String: rl.Description, Valid: rl.Description != ""},
@@ -213,7 +213,7 @@ func toPersistence(rl role.Role) rolePersistence {
 
 func toDomain(p rolePersistence) role.Role {
 	return role.Role{
-		ID:          p.ID,
+		ID:          kernel.NewRoleID(p.ID),
 		TenantID:    p.TenantID,
 		Name:        p.Name,
 		Description: p.Description.String,

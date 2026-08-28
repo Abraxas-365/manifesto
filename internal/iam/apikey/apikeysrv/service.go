@@ -80,7 +80,7 @@ func (s *APIKeyService) CreateAPIKey(
 	}
 
 	newKey := apikey.APIKey{
-		ID:          uuid.NewString(),
+		ID:          kernel.NewAPIKeyID(uuid.NewString()),
 		KeyHash:     apikey.HashAPIKey(generated.Key),
 		KeyPrefix:   generated.KeyPrefix,
 		TenantID:    tenantID,
@@ -107,7 +107,7 @@ func (s *APIKeyService) CreateAPIKey(
 
 func (s *APIKeyService) GetAPIKeyByID(
 	ctx context.Context,
-	keyID string,
+	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 ) (*apikey.APIKeyDTO, error) {
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
@@ -141,7 +141,7 @@ func (s *APIKeyService) GetTenantAPIKeys(
 
 func (s *APIKeyService) UpdateAPIKey(
 	ctx context.Context,
-	keyID string,
+	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 	req apikey.UpdateAPIKeyRequest,
 ) (*apikey.APIKeyDTO, error) {
@@ -177,7 +177,7 @@ func (s *APIKeyService) UpdateAPIKey(
 }
 func (s *APIKeyService) RevokeAPIKey(
 	ctx context.Context,
-	keyID string,
+	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 ) error {
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
@@ -191,7 +191,7 @@ func (s *APIKeyService) RevokeAPIKey(
 
 func (s *APIKeyService) DeleteAPIKey(
 	ctx context.Context,
-	keyID string,
+	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 ) error {
 	_, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)

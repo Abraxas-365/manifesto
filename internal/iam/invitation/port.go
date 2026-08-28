@@ -15,7 +15,7 @@ type NotificationService interface {
 // InvitationRepository defines the interface for invitation persistence
 type InvitationRepository interface {
 	// FindByID finds an invitation by ID
-	FindByID(ctx context.Context, id string) (*Invitation, error)
+	FindByID(ctx context.Context, id kernel.InvitationID) (*Invitation, error)
 
 	// FindByToken finds an invitation by token
 	FindByToken(ctx context.Context, token string) (*Invitation, error)
@@ -39,7 +39,7 @@ type InvitationRepository interface {
 	Save(ctx context.Context, inv Invitation) error
 
 	// Delete deletes an invitation
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, id kernel.InvitationID) error
 
 	// ExistsPendingForEmail checks whether a pending invitation exists for an email
 	ExistsPendingForEmail(ctx context.Context, email string, tenantID kernel.TenantID) (bool, error)

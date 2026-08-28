@@ -70,8 +70,8 @@ func (h *PasswordlessAuthHandlers) resolveScopes(ctx context.Context, userEntity
 }
 
 // assignInvitationRole assigns the invitation's role to the user if present
-func (h *PasswordlessAuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *string) {
-	if roleID == nil || *roleID == "" {
+func (h *PasswordlessAuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *kernel.RoleID) {
+	if roleID == nil || roleID.IsEmpty() {
 		return
 	}
 	userRole := role.UserRole{

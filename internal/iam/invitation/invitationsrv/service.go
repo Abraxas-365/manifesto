@@ -82,10 +82,10 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 	}
 
 	// Validate role if provided
-	if req.RoleID != nil && *req.RoleID != "" {
+	if req.RoleID != nil && !req.RoleID.IsEmpty() {
 		_, err := s.roleRepo.FindByID(ctx, *req.RoleID, tenantID)
 		if err != nil {
-			return nil, role.ErrRoleNotFound().WithDetail("role_id", *req.RoleID)
+			return nil, role.ErrRoleNotFound().WithDetail("role_id", req.RoleID.String())
 		}
 	}
 
@@ -115,7 +115,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 
 	// Create invitation
 	newInvitation := &invitation.Invitation{
-		ID:        uuid.NewString(),
+		ID:        kernel.NewInvitationID(uuid.NewString()),
 		TenantID:  tenantID,
 		Email:     req.Email,
 		Token:     token,
@@ -143,7 +143,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 }
 
 // GetInvitationByID gets an invitation by ID
-func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID string, tenantID kernel.TenantID) (*invitation.InvitationResponse, error) {
+func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID kernel.InvitationID, tenantID kernel.TenantID) (*invitation.InvitationResponse, error) {
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return nil, invitation.ErrInvitationNotFound()
@@ -250,7 +250,7 @@ func (s *InvitationService) GetPendingInvitations(ctx context.Context, tenantID 
 }
 
 // RevokeInvitation revokes an invitation
-func (s *InvitationService) RevokeInvitation(ctx context.Context, invitationID string, tenantID kernel.TenantID) error {
+func (s *InvitationService) RevokeInvitation(ctx context.Context, invitationID kernel.InvitationID, tenantID kernel.TenantID) error {
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return invitation.ErrInvitationNotFound()
@@ -271,7 +271,7 @@ func (s *InvitationService) RevokeInvitation(ctx context.Context, invitationID s
 }
 
 // DeleteInvitation deletes an invitation
-func (s *InvitationService) DeleteInvitation(ctx context.Context, invitationID string, tenantID kernel.TenantID) error {
+func (s *InvitationService) DeleteInvitation(ctx context.Context, invitationID kernel.InvitationID, tenantID kernel.TenantID) error {
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return invitation.ErrInvitationNotFound()

@@ -3,6 +3,7 @@ package userapi
 import (
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
+	iamscopes "github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/usersrv"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -20,14 +21,14 @@ func NewScopeHandlers(service *usersrv.UserService) *ScopeHandlers {
 func (h *ScopeHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
 	// System scopes (available scopes catalog)
 	scopes := router.Group("/scopes", authMiddleware.Authenticate())
-	scopes.Get("/", authMiddleware.RequireScope("scopes:read"), h.GetAllAvailableScopes)
+	scopes.Get("/", authMiddleware.RequireScope(iamscopes.ScopeScopesRead), h.GetAllAvailableScopes)
 
 	// User scope management
 	userScopes := router.Group("/users/:userId/scopes", authMiddleware.Authenticate())
-	userScopes.Get("/", authMiddleware.RequireScope("scopes:read"), h.GetUserScopes)
-	userScopes.Put("/", authMiddleware.RequireScope("scopes:write"), h.SetUserScopes)
-	userScopes.Post("/", authMiddleware.RequireScope("scopes:assign"), h.AddUserScopes)
-	userScopes.Delete("/", authMiddleware.RequireScope("scopes:assign"), h.RemoveUserScopes)
+	userScopes.Get("/", authMiddleware.RequireScope(iamscopes.ScopeScopesRead), h.GetUserScopes)
+	userScopes.Put("/", authMiddleware.RequireScope(iamscopes.ScopeScopesWrite), h.SetUserScopes)
+	userScopes.Post("/", authMiddleware.RequireScope(iamscopes.ScopeScopesAssign), h.AddUserScopes)
+	userScopes.Delete("/", authMiddleware.RequireScope(iamscopes.ScopeScopesAssign), h.RemoveUserScopes)
 }
 
 // GetAllAvailableScopes returns all scopes defined in the system, grouped by category.
