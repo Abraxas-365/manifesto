@@ -118,15 +118,18 @@ Instead of passing `string` everywhere, we use **strongly-typed domain primitive
 ```go
 type UserID string
 type TenantID string
-type CandidateID string
-type JobID string
-type ApplicationID string
-type Email string
-type DNI struct {
-    Type   DNIType
-    Number string
-}
+type RoleID string
+type InvitationID string
+type APIKeyID string
 ```
+
+Each typed ID has `NewXxxID(string)`, `.String()`, and `.IsEmpty()` methods. Handlers convert URL params immediately:
+
+```go
+userID := kernel.NewUserID(c.Params("id"))
+```
+
+Raw `string` must never flow through service or domain layers for entity IDs.
 
 ### Benefits:
 
@@ -143,23 +146,31 @@ type DNI struct {
 
 * **Testability** — Mock repositories in tests
 * **Flexibility** — Swap PostgreSQL for MongoDB without changing business logic
-* **Domain language** — `FindByEmail()` not `SELECT * FROM users WHERE...`
+* **Domain language** — `GetByEmail()` not `SELECT * FROM users WHERE...`
 
-### Our Convention:
+### Method Naming Convention
+
+The same three verbs are used across **all layers** (repo, service, handler). The verb alone tells you the return shape:
+
+| Verb | Intent | Returns |
+|:---|:---|:---|
+| `Get*` | Single entity | `(*T, error)` |
+| `List*` | All items, no pagination | `([]*T, error)` |
+| `Find*` | Paginated/filtered search | `(Paginated[T], error)` |
 
 ```go
-// Domain layer defines the CONTRACT
+// Repository port
 type Repository interface {
-    Create(ctx context.Context, candidate *Candidate) error
     GetByID(ctx context.Context, id kernel.CandidateID) (*Candidate, error)
-    GetByEmail(ctx context.Context, email kernel.Email) (*Candidate, error)
-    Search(ctx context.Context, req SearchCandidatesRequest) (*kernel.Paginated[Candidate], error)
+    GetByEmail(ctx context.Context, email string) (*Candidate, error)
+    ListByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*Candidate, error)
+    Find(ctx context.Context, req SearchCandidatesRequest) (*kernel.Paginated[Candidate], error)
 }
 
-// Infrastructure layer provides IMPLEMENTATION
-type PostgresCandidateRepository struct {
-    db *sqlx.DB
-}
+// Service mirrors the same verbs
+func (s *CandidateService) GetCandidate(ctx, id) (*CandidateResponse, error)
+func (s *CandidateService) ListTenantCandidates(ctx, tenantID) ([]*CandidateResponse, error)
+func (s *CandidateService) FindCandidates(ctx, req) (*Paginated[CandidateResponse], error)
 ```
 
 **Never leak infrastructure details** (SQL, Mongo queries) into domain/service layers.
@@ -631,24 +642,48 @@ func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest
 * **API versioning** — Change DTOs without changing domain entities
 * **Security** — Don't expose internal IDs or sensitive fields
 * **Validation at boundaries** — Validate input before entering domain
-* **Separation** — Domain entities ≠ API responses
+* **Separation** — Domain entities != API responses
 
-### Our Pattern:
+### Request Binding & Validation
+
+Manifesto uses **explicit `Validate()` methods** instead of struct tags (no `validate:"required"`). This keeps validation logic visible and testable. `kernel.BindAndValidate[T]` parses the request body and calls `Validate()` in one step — the compiler enforces that every request DTO implements it:
 
 ```go
-// Input DTO
+// Input DTO with explicit validation
 type CreateCandidateRequest struct {
-    Email     kernel.Email     `json:"email" validate:"required,email"`
-    FirstName kernel.FirstName `json:"first_name" validate:"required"`
-    LastName  kernel.LastName  `json:"last_name" validate:"required"`
+    Email     string `json:"email"`
+    FirstName string `json:"first_name"`
+    LastName  string `json:"last_name"`
 }
 
-// Output DTO
+func (r *CreateCandidateRequest) Validate() error {
+    if r.Email == "" {
+        return errx.Validation("email is required")
+    }
+    if r.FirstName == "" {
+        return errx.Validation("first_name is required")
+    }
+    return nil
+}
+
+// Handler usage
+func (h *Handlers) CreateCandidate(c *fiber.Ctx) error {
+    req, err := kernel.BindAndValidate[CreateCandidateRequest](c)
+    if err != nil {
+        return err  // returns errx.Validation automatically
+    }
+    // req is parsed and validated
+}
+```
+
+### Output DTOs
+
+```go
 type CandidateResponse struct {
     ID        kernel.CandidateID `json:"id"`
-    Email     kernel.Email       `json:"email"`
-    FirstName kernel.FirstName   `json:"first_name"`
-    LastName  kernel.LastName    `json:"last_name"`
+    Email     string             `json:"email"`
+    FirstName string             `json:"first_name"`
+    LastName  string             `json:"last_name"`
     CreatedAt time.Time          `json:"created_at"`
 }
 
@@ -656,11 +691,7 @@ type CandidateResponse struct {
 type Candidate struct {
     ID           kernel.CandidateID
     TenantID     kernel.TenantID
-    Email        kernel.Email
-    FirstName    kernel.FirstName
-    LastName     kernel.LastName
-    CreatedAt    time.Time
-    UpdatedAt    time.Time
+    Email        string
     PasswordHash string  // Never exposed
     IsActive     bool
 }
@@ -685,22 +716,62 @@ var (
         http.StatusNotFound,
         "Job not found",
     )
-
-    CodeJobNotPublished = ErrRegistry.Register(
-        "JOB_NOT_PUBLISHED",
-        errx.TypeBusiness,
-        http.StatusForbidden,
-        "Job is not published",
-    )
 )
 
-func ErrJobNotFound() *errx.Error       { return errx.New(CodeJobNotFound) }
-func ErrJobNotPublished() *errx.Error   { return errx.New(CodeJobNotPublished) }
+func ErrJobNotFound() *errx.Error { return errx.New(CodeJobNotFound) }
 
 func ErrJobNotFoundWithID(jobID kernel.JobID) *errx.Error {
     return ErrJobNotFound().WithDetail("job_id", jobID)
 }
 ```
+
+### Error Comparison with `errors.Is`
+
+`errx.Error` implements `Is(target error) bool`, matching by error **code** rather than pointer identity. This means `errors.Is` works correctly even though each `ErrXxx()` constructor returns a new pointer:
+
+```go
+errors.Is(err, role.ErrRoleNotFound())  // true if err has the same code
+```
+
+Additionally, `errx.IsNotFound(err)` checks whether any error in the chain is an `errx.Error` with `TypeNotFound` — useful for generic "not found" handling without importing a specific module's error.
+
+### Repository "Not Found" Pattern
+
+Go has no `Option<T>` type, so unlike Rust's `fetch_optional` which returns `None`, Go's `database/sql` signals "no rows" with `sql.ErrNoRows`. The idiomatic Go approach — used by Kubernetes, GORM, and the Go stdlib — is to **translate `sql.ErrNoRows` into a domain error at the repository boundary**:
+
+```go
+// Repository — translates sql.ErrNoRows into a domain error
+func (r *PostgresRoleRepository) GetByID(ctx context.Context, id kernel.RoleID) (*role.Role, error) {
+    var p rolePersistence
+    err := r.db.GetContext(ctx, &p, query, id.String())
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return nil, role.ErrRoleNotFound()  // domain error, not sql error
+        }
+        return nil, errx.Wrap(err, "failed to find role", errx.TypeInternal)
+    }
+    d := toDomain(p)
+    return &d, nil
+}
+```
+
+**Never swallow errors with `_`** when calling a repo method. When "not found" is an expected outcome (e.g., checking for duplicates before creation), use `errors.Is` to distinguish it from real database errors:
+
+```go
+// Service — "not found" is expected, real DB errors are not
+existing, err := s.roleRepo.GetByName(ctx, req.Name, tenantID)
+if err != nil && !errors.Is(err, role.ErrRoleNotFound()) {
+    return nil, errx.Wrap(err, "failed to check role name", errx.TypeInternal)
+}
+if existing != nil {
+    return nil, role.ErrRoleAlreadyExists()
+}
+```
+
+Why not `nil, nil` (like Rust's `Option`)?
+- Go has no compiler-enforced `Option<T>` — a caller who forgets to check `nil` gets a runtime panic, not a compile error
+- `nil, nil` is ambiguous: does it mean "not found" or "success with no data"?
+- Returning a typed domain error makes the "not found" case explicit and grep-able
 
 ### Benefits:
 
@@ -708,6 +779,7 @@ func ErrJobNotFoundWithID(jobID kernel.JobID) *errx.Error {
 * **HTTP status codes** — Automatic mapping to correct HTTP responses
 * **Structured context** — `WithDetail()` adds debugging information
 * **Wrapping** — Preserve error chains with `errx.Wrap()`
+* **Code-based comparison** — `errors.Is` works across constructor calls
 
 ---
 
@@ -748,6 +820,26 @@ const (
 )
 ```
 
+All scope constants live in `internal/iam/scopes/scopes.go`. **Always use constants, never hardcoded strings**:
+
+```go
+// Correct
+router.Get("/", authMiddleware.RequireScope(iamscopes.ScopeUsersRead), h.ListUsers)
+
+// Wrong — never do this
+router.Get("/", authMiddleware.RequireScope("users:read"), h.ListUsers)
+```
+
+### Platform Scopes
+
+Scopes prefixed with `platform:` are reserved for platform operators and **cannot be assigned by regular tenant admins**. This is enforced automatically:
+
+1. **Scope assignment** — services reject platform scopes unless the caller holds one
+2. **Scope catalog** — `GET /scopes/` hides platform scopes from non-platform callers
+3. **Helpers** — `IsPlatformScope()`, `ContainsPlatformScope()`, `CallerHasPlatformScope()`
+
+To add new platform scopes (e.g., `platform:users:*`), add them to `scopes.go` with the `platform:` prefix and they automatically inherit these protections.
+
 ### Roles
 
 Roles are named collections of scopes that can be assigned to users. A user's
@@ -764,26 +856,19 @@ User "alice"
 Effective scopes: ["reports:view", "content:read", "content:write", "reviews:write"]
 ```
 
-### Scope Requirements for Role & Scope Management
+### Services, Not Pre-Wired Handlers
 
-Every management endpoint is itself protected by scopes:
+Manifesto provides **services** (business logic) for user management, roles, invitations, API keys, and scope assignment — but does **not** ship pre-wired HTTP handlers for them. This is intentional:
 
-**Role endpoints** (`/roles`):
+* **Security** — Pre-exposed CRUD endpoints are an attack surface developers may not realize is live
+* **Flexibility** — Each project wires its own handlers with explicit route registration
+* **Control** — Developers choose exactly which operations to expose
 
-| Scope Required | Endpoints |
-|:---|:---|
-| `roles:read` | `GET /roles`, `GET /roles/:id`, `GET /users/:userId/roles` |
-| `roles:write` | `POST /roles`, `PUT /roles/:id` |
-| `roles:delete` | `DELETE /roles/:id` |
-| `roles:assign` | `POST /roles/:id/assign`, `DELETE /roles/:id/users/:userId` |
-
-**Scope endpoints** (`/scopes`, `/users/:userId/scopes`):
-
-| Scope Required | Endpoints |
-|:---|:---|
-| `scopes:read` | `GET /scopes`, `GET /users/:userId/scopes` |
-| `scopes:write` | `PUT /users/:userId/scopes` |
-| `scopes:assign` | `POST /users/:userId/scopes`, `DELETE /users/:userId/scopes` |
+The only pre-wired routes are:
+- **Auth** (OAuth, passwordless, `/auth/me`, refresh, logout) — essential for the app to function
+- **Scope catalog** (`GET /scopes/`) — read-only, safe
+- **Tenant self-service** (`/tenants/me/*`) — tenant owners manage their own tenant
+- **Platform admin** (`/admin/tenants/*`) — cross-tenant operations for platform operators
 
 ### Middleware Usage
 
@@ -895,42 +980,42 @@ func NewUserService(
 
 ```
 internal/
-├── kernel/           # Shared domain primitives
-├── errx/             # Error handling framework
+├── kernel/           # Shared domain primitives (typed IDs, AuthContext, BindAndValidate, Store)
+├── errx/             # Error handling framework (registries, errors.Is support)
 ├── logx/             # Logging framework
 ├── fsx/              # File system abstraction
 ├── ptrx/             # Pointer utilities
+├── asyncx/           # Concurrency primitives
+├── notifx/           # Email notification abstraction
+├── jobx/             # Background job queue
 └── iam/              # Identity & Access Management
+    ├── scopes/
+    │   ├── scopes.go       # Scope constants + categories
+    │   ├── scope_manager.go # Validation, platform scope helpers
+    │   └── scopeapi/       # Read-only scope catalog handler
     ├── user/
     │   ├── user.go
-    │   ├── repository.go
+    │   ├── port.go
     │   ├── usersrv/
     │   │   └── service.go
     │   └── userinfra/
     │       └── postgres.go
     ├── tenant/
+    │   ├── tenantapi/     # Platform admin + self-service handlers
+    │   ├── tenantsrv/
+    │   └── tenantinfra/
     ├── role/
+    │   ├── rolesrv/       # Service only — no pre-wired handlers
+    │   └── roleinfra/
     ├── invitation/
+    │   ├── invitationsrv/ # Service only — no pre-wired handlers
+    │   └── invitationinfra/
     ├── apikey/
-    ├── iaminfra/     # Shared infra (UoW — only if IAM needs it)
-    │   └── uow.go
-    └── auth/
-
-recruitment/
-├── candidate/
-│   ├── candidate.go
-│   ├── repository.go
-│   ├── errors.go
-│   ├── candidatesrv/
-│   └── candidateinfra/
-├── job/
-└── application/      # Bridge domain (relationships)
-    ├── application.go
-    ├── repository.go
-    ├── dtos.go
-    ├── errors.go
-    ├── applicationsrv/
-    └── applicationinfra/
+    │   ├── apikeysrv/     # Service only — no pre-wired handlers
+    │   └── apikeyinfra/
+    ├── otp/
+    ├── auth/              # OAuth, passwordless, middleware
+    └── iamcontainer/      # Dependency wiring
 ```
 
 ### Principles:
@@ -1049,12 +1134,14 @@ type AuthContext struct {
 ## 22. **Security Principles**
 
 1. **Middleware authentication** — Validate before reaching handlers
-2. **Scope enforcement** — Fine-grained permissions
+2. **Scope enforcement** — Fine-grained permissions, scope constants (never hardcoded strings)
 3. **Tenant isolation** — Every query filtered by `TenantID`
-4. **Input validation** — DTOs with `validate` tags
+4. **Input validation** — Explicit `Validate()` methods on request DTOs, enforced by `kernel.BindAndValidate[T]`
 5. **API key hashing** — Never store plaintext secrets
 6. **Token expiration** — Short-lived JWTs (15 min), refresh tokens (7 days)
 7. **Invitation-only registration** — No self-signup for B2B SaaS
+8. **No pre-wired CRUD handlers** — Services only; developers explicitly expose what they need
+9. **Platform scope protection** — `platform:*` scopes automatically restricted to platform operators
 
 ---
 
@@ -1117,10 +1204,13 @@ DELETE /api/applications/:id           → Withdraw application
 * ❌ **Anemic domain models** — Entities have behavior
 * ❌ **Service layer bypass** — Never call repos directly from handlers
 * ❌ **DTO reuse** — Don't use the same DTO for input and output
-* ❌ **Primitive obsession** — Use value objects, not `string` everywhere
+* ❌ **Primitive obsession** — Use typed IDs (`kernel.UserID`), not `string` everywhere
 * ❌ **Magic strings** — Constants for error codes, scopes, etc.
 * ❌ **Cross-domain imports** — Use bridge domains instead
 * ❌ **UoW everywhere** — Only inject `UnitOfWork` where multi-repo atomicity is actually required
+* ❌ **Struct tag validation** — Use explicit `Validate()` methods
+* ❌ **Swallowed errors** — Never use `_, _ :=` on repo calls; use `errors.Is` for expected errors
+* ❌ **Pre-wired CRUD endpoints** — Ship services, let developers explicitly opt-in to exposing routes
 
 ---
 
