@@ -435,7 +435,131 @@ func (s *CandidateService) DeactivateCandidate(ctx context.Context, id kernel.Ca
 
 ---
 
-## 7. **Transactions: Unit of Work Pattern (When Needed)**
+## 7. **Inter-Service Dependencies: Repository vs Service Port**
+
+When a service needs something from another module, the question is: **import the repository or the service?** The answer depends on what you need.
+
+### Pattern 1: Need Data Only → Import the Repository Interface
+
+When a service just needs a lookup (no business logic from the other module), import its repository directly:
+
+```go
+type UserService struct {
+    userRepo   user.UserRepository
+    tenantRepo tenant.TenantRepository  // just needs FindByID — raw data lookup
+}
+
+func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) error {
+    // Simple existence check — no tenant business logic needed
+    tenant, err := s.tenantRepo.FindByID(ctx, req.TenantID)
+    if err != nil {
+        return tenant.ErrTenantNotFound()
+    }
+    // ...
+}
+```
+
+This is the simplest option. Use it when the service only reads data from the other module.
+
+### Pattern 2: Need Business Logic, Signatures Match → Consumer Defines Interface
+
+When a service needs **behavior** from another module's service, define an interface (port) in the **consumer** that describes exactly what it needs. If the provider already has a method with matching signature, Go's implicit interface satisfaction does the rest — no adapter needed.
+
+```go
+// auth/port.go — the CONSUMER defines what it needs
+type ScopeResolver interface {
+    GetEffectiveScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) ([]string, error)
+}
+
+// rolesrv/service.go — the PROVIDER already has this method
+func (s *RoleService) GetEffectiveScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) ([]string, error) {
+    // merges direct user scopes + role scopes
+}
+
+// iamcontainer/container.go — the CONTAINER wires them together
+c.OAuthHandlers = auth.NewAuthHandlers(
+    // ...
+    c.RoleService,  // satisfies auth.ScopeResolver implicitly
+    // ...
+)
+```
+
+The auth package never imports the role package. The container is the only place that knows both.
+
+### Pattern 3: Need Business Logic, Signatures Don't Match → Adapter
+
+When the provider's method signature doesn't match what the consumer needs, write a **thin adapter**:
+
+```go
+// auth/port.go — consumer interface
+type AuditService interface {
+    LogLoginAttempt(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, success bool, ip string, userAgent string)
+}
+
+// The real audit module has a different signature, so we write an adapter:
+// authinfra/audit_adapter.go
+type auditAdapter struct {
+    auditSvc *auditsrv.AuditService
+}
+
+func (a *auditAdapter) LogLoginAttempt(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, method string, success bool, ip string, userAgent string) {
+    a.auditSvc.Log(ctx, auditsrv.Event{
+        Type:   "login_attempt",
+        UserID: userID,
+        // ... translate fields
+    })
+}
+```
+
+### Decision Guide
+
+| What you need | Pattern | Import |
+|:---|:---|:---|
+| Raw data lookup (FindByID, GetByEmail) | **Repository** | Other module's repository interface |
+| Business logic, method signatures match | **Implicit port** | Consumer defines interface, container wires |
+| Business logic, signatures differ | **Adapter** | Consumer defines interface, adapter in infra translates |
+
+### Key Principle
+
+**The consumer always defines the interface.** Never create an interface in the provider "for others to use." This is Go's Dependency Inversion Principle:
+
+```
+✅ auth defines ScopeResolver    → rolesrv happens to satisfy it
+❌ rolesrv exports ScopeResolver → auth imports it (creates coupling)
+```
+
+The container (`iamcontainer`) is the **only place** that knows about concrete types from both modules and wires them together.
+
+### When to Promote from Repository to Service Port
+
+If you notice a service **duplicating business logic** from another module to avoid a dependency, that's the signal to create a port:
+
+```go
+// ❌ BAD: duplicating tenant validation logic from TenantService
+func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) error {
+    tenant, err := s.tenantRepo.FindByID(ctx, req.TenantID)
+    // re-implementing CanAddUser checks that already live in TenantService...
+    if tenant.CurrentUsers >= tenant.MaxUsers { ... }
+    if tenant.IsTrialExpired() { ... }
+    if tenant.IsSubscriptionExpired() { ... }
+}
+
+// ✅ GOOD: define a port for the behavior you need
+type TenantValidator interface {
+    CanAddUser(ctx context.Context, tenantID kernel.TenantID) error
+}
+
+func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) error {
+    if err := s.tenantValidator.CanAddUser(ctx, req.TenantID); err != nil {
+        return err
+    }
+    // ...
+}
+```
+
+---
+
+## 8. **Transactions: Unit of Work Pattern (When Needed)**
 
 ### ⚠️ Not Every Service Needs This
 
@@ -635,7 +759,7 @@ func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest
 
 ---
 
-## 8. **DTOs: Input/Output Transformation**
+## 9. **DTOs: Input/Output Transformation**
 
 ### Why DTOs?
 
@@ -699,7 +823,7 @@ type Candidate struct {
 
 ---
 
-## 9. **Error Handling: Rich, Structured Errors**
+## 10. **Error Handling: Rich, Structured Errors**
 
 ### The `internal/errx` Package
 
@@ -783,7 +907,7 @@ Why not `nil, nil` (like Rust's `Option`)?
 
 ---
 
-## 10. **Multi-Tenancy: First-Class Concern**
+## 11. **Multi-Tenancy: First-Class Concern**
 
 * **Every entity** has a `TenantID`
 * **All queries** filter by tenant
@@ -800,7 +924,7 @@ func (r *Repository) FindByID(ctx context.Context, id UserID) (*User, error)
 
 ---
 
-## 11. **Scopes & Roles: Fine-Grained Access Control**
+## 12. **Scopes & Roles: Fine-Grained Access Control**
 
 ### Scopes
 
@@ -886,7 +1010,7 @@ func (am *UnifiedAuthMiddleware) RequireScope(scope string) fiber.Handler {
 
 ---
 
-## 12. **Authentication: OAuth + JWT + API Keys**
+## 13. **Authentication: OAuth + JWT + API Keys**
 
 ### Unified Auth Strategy:
 
@@ -911,7 +1035,7 @@ func (am *UnifiedAuthMiddleware) Authenticate() fiber.Handler {
 
 ---
 
-## 13. **Reusable Packages: Build Once, Use Everywhere**
+## 14. **Reusable Packages: Build Once, Use Everywhere**
 
 ### `internal/errx` — Error Handling
 * Type-safe error creation, HTTP status mapping, error registries per module
@@ -930,7 +1054,7 @@ func (am *UnifiedAuthMiddleware) Authenticate() fiber.Handler {
 
 ---
 
-## 14. **Pagination: Consistent & Type-Safe**
+## 15. **Pagination: Consistent & Type-Safe**
 
 ```go
 type Paginated[T any] struct {
@@ -949,7 +1073,7 @@ type Page struct {
 
 ---
 
-## 15. **Dependency Injection: Explicit & Testable**
+## 16. **Dependency Injection: Explicit & Testable**
 
 ### Constructor Injection:
 
@@ -976,7 +1100,7 @@ func NewUserService(
 
 ---
 
-## 16. **Package Organization: Domain-Centric**
+## 17. **Package Organization: Domain-Centric**
 
 ```
 internal/
@@ -1027,7 +1151,7 @@ internal/
 
 ---
 
-## 17. **Middleware: Composable Security Layers**
+## 18. **Middleware: Composable Security Layers**
 
 ```go
 app.Use(authMiddleware.Authenticate())
@@ -1045,7 +1169,7 @@ app.Delete("/users/:id",
 
 ---
 
-## 18. **Configuration: Environment-Driven**
+## 19. **Configuration: Environment-Driven**
 
 ```go
 type Config struct {
@@ -1070,7 +1194,7 @@ if err := config.Validate(); err != nil {
 
 ---
 
-## 19. **Error Handling Philosophy**
+## 20. **Error Handling Philosophy**
 
 1. **Errors are data** — Structure them properly
 2. **Context matters** — Use `WithDetail()` liberally
@@ -1090,7 +1214,7 @@ return fmt.Errorf("upload failed: %w", err)
 
 ---
 
-## 20. **Testing Strategy**
+## 21. **Testing Strategy**
 
 1. **Domain logic** — Unit tests for entities
 2. **Service layer** — Integration tests with mock repos
@@ -1116,7 +1240,7 @@ func (m *MockUserRepository) FindByID(
 
 ---
 
-## 21. **Context Propagation: Request Lifecycle**
+## 22. **Context Propagation: Request Lifecycle**
 
 ```go
 type AuthContext struct {
@@ -1131,7 +1255,7 @@ type AuthContext struct {
 
 ---
 
-## 22. **Security Principles**
+## 23. **Security Principles**
 
 1. **Middleware authentication** — Validate before reaching handlers
 2. **Scope enforcement** — Fine-grained permissions, scope constants (never hardcoded strings)
@@ -1145,7 +1269,7 @@ type AuthContext struct {
 
 ---
 
-## 23. **Observability: Logging Best Practices**
+## 24. **Observability: Logging Best Practices**
 
 ```go
 // ✅ Structured with context
@@ -1161,7 +1285,7 @@ log.Printf("User %s created for tenant %s", userID, tenantID)
 
 ---
 
-## 24. **Database Strategy**
+## 25. **Database Strategy**
 
 * **Version controlled** migrations in `/migrations`
 * **Idempotent** — can run multiple times safely
@@ -1172,7 +1296,7 @@ log.Printf("User %s created for tenant %s", userID, tenantID)
 
 ---
 
-## 25. **API Design Principles**
+## 26. **API Design Principles**
 
 ```
 POST   /api/jobs                       → Create job
@@ -1188,7 +1312,7 @@ DELETE /api/applications/:id           → Withdraw application
 
 ---
 
-## 26. **Code Style & Conventions**
+## 27. **Code Style & Conventions**
 
 * **Entities** — Singular nouns (`User`, `Tenant`, `Job`)
 * **Repositories** — `Repository` interface per domain
@@ -1198,7 +1322,7 @@ DELETE /api/applications/:id           → Withdraw application
 
 ---
 
-## 27. **What We Avoid**
+## 28. **What We Avoid**
 
 * ❌ **God objects** — No single struct that does everything
 * ❌ **Anemic domain models** — Entities have behavior
@@ -1214,7 +1338,7 @@ DELETE /api/applications/:id           → Withdraw application
 
 ---
 
-## 28. **Performance Considerations**
+## 29. **Performance Considerations**
 
 * **Eager loading** — Use `GetWithDetails()` to avoid N+1 queries
 * **Batch fetching** — `GetByIDs()` for multiple entities
@@ -1252,5 +1376,5 @@ Every decision here serves **specific goals**:
 
 ---
 
-*Version: 2.1*
-*Last Updated: 2026-03-06*
+*Version: 2.2*
+*Last Updated: 2026-08-29*
