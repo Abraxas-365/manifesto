@@ -11,6 +11,7 @@ type TokenRepository interface {
 	SaveRefreshToken(ctx context.Context, token RefreshToken) error
 	FindRefreshToken(ctx context.Context, tokenValue string) (*RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, tokenValue string) error
+	RevokeRefreshTokensBySessionID(ctx context.Context, sessionID string) error
 	RevokeAllUserTokens(ctx context.Context, userID kernel.UserID) error
 	CleanExpiredTokens(ctx context.Context) error
 }
@@ -20,6 +21,8 @@ type SessionRepository interface {
 	SaveSession(ctx context.Context, session UserSession) error
 	FindSession(ctx context.Context, sessionID string) (*UserSession, error)
 	FindUserSessions(ctx context.Context, userID kernel.UserID) ([]*UserSession, error)
+	CountActiveSessions(ctx context.Context, userID kernel.UserID) (int, error)
+	FindOldestSession(ctx context.Context, userID kernel.UserID) (*UserSession, error)
 	UpdateSessionActivity(ctx context.Context, sessionID string) error
 	RevokeSession(ctx context.Context, sessionID string) error
 	RevokeAllUserSessions(ctx context.Context, userID kernel.UserID) error

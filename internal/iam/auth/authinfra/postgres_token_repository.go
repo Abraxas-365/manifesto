@@ -26,9 +26,9 @@ func NewPostgresTokenRepository(db *sqlx.DB) auth.TokenRepository {
 func (r *PostgresTokenRepository) SaveRefreshToken(ctx context.Context, token auth.RefreshToken) error {
 	query := `
 		INSERT INTO refresh_tokens (
-			id, token, user_id, tenant_id, expires_at, created_at, is_revoked
+			id, token, user_id, tenant_id, session_id, expires_at, created_at, is_revoked
 		) VALUES (
-			:id, :token, :user_id, :tenant_id, :expires_at, :created_at, :is_revoked
+			:id, :token, :user_id, :tenant_id, :session_id, :expires_at, :created_at, :is_revoked
 		)`
 
 	_, err := r.db.NamedExecContext(ctx, query, token)
@@ -40,13 +40,13 @@ func (r *PostgresTokenRepository) SaveRefreshToken(ctx context.Context, token au
 	return nil
 }
 
-// FindRefreshToken finds a refresh token by its value
+// FindRefreshToken finds a refresh token by its value (including revoked ones for theft detection)
 func (r *PostgresTokenRepository) FindRefreshToken(ctx context.Context, tokenValue string) (*auth.RefreshToken, error) {
 	query := `
 		SELECT 
-			id, token, user_id, tenant_id, expires_at, created_at, is_revoked
+			id, token, user_id, tenant_id, session_id, expires_at, created_at, is_revoked
 		FROM refresh_tokens 
-		WHERE token = $1 AND is_revoked = false`
+		WHERE token = $1`
 
 	var token auth.RefreshToken
 	err := r.db.GetContext(ctx, &token, query, tokenValue)
@@ -84,6 +84,22 @@ func (r *PostgresTokenRepository) RevokeRefreshToken(ctx context.Context, tokenV
 	return nil
 }
 
+// RevokeRefreshTokensBySessionID revokes all refresh tokens for a given session
+func (r *PostgresTokenRepository) RevokeRefreshTokensBySessionID(ctx context.Context, sessionID string) error {
+	query := `
+		UPDATE refresh_tokens 
+		SET is_revoked = true 
+		WHERE session_id = $1 AND is_revoked = false`
+
+	_, err := r.db.ExecContext(ctx, query, sessionID)
+	if err != nil {
+		return errx.Wrap(err, "failed to revoke refresh tokens by session", errx.TypeInternal).
+			WithDetail("session_id", sessionID)
+	}
+
+	return nil
+}
+
 // RevokeAllUserTokens revokes all tokens for a user
 func (r *PostgresTokenRepository) RevokeAllUserTokens(ctx context.Context, userID kernel.UserID) error {
 	query := `
@@ -112,46 +128,4 @@ func (r *PostgresTokenRepository) CleanExpiredTokens(ctx context.Context) error 
 	}
 
 	return nil
-}
-
-// CountActiveTokens counts active tokens for a user
-func (r *PostgresTokenRepository) CountActiveTokens(ctx context.Context, userID kernel.UserID) (int, error) {
-	query := `
-		SELECT COUNT(*) 
-		FROM refresh_tokens 
-		WHERE user_id = $1 AND is_revoked = false AND expires_at > NOW()`
-
-	var count int
-	err := r.db.GetContext(ctx, &count, query, userID.String())
-	if err != nil {
-		return 0, errx.Wrap(err, "failed to count active tokens", errx.TypeInternal).
-			WithDetail("user_id", userID.String())
-	}
-
-	return count, nil
-}
-
-// GetActiveTokensByUser retrieves all active tokens for a user
-func (r *PostgresTokenRepository) GetActiveTokensByUser(ctx context.Context, userID kernel.UserID) ([]*auth.RefreshToken, error) {
-	query := `
-		SELECT 
-			id, token, user_id, tenant_id, expires_at, created_at, is_revoked
-		FROM refresh_tokens 
-		WHERE user_id = $1 AND is_revoked = false AND expires_at > NOW()
-		ORDER BY created_at DESC`
-
-	var tokens []auth.RefreshToken
-	err := r.db.SelectContext(ctx, &tokens, query, userID.String())
-	if err != nil {
-		return nil, errx.Wrap(err, "failed to get active tokens", errx.TypeInternal).
-			WithDetail("user_id", userID.String())
-	}
-
-	// Convert to pointer slice
-	result := make([]*auth.RefreshToken, len(tokens))
-	for i := range tokens {
-		result[i] = &tokens[i]
-	}
-
-	return result, nil
 }

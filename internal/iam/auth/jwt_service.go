@@ -31,10 +31,11 @@ func NewJWTServiceFromConfig(cfg *config.JWTConfig) *JWTService {
 
 // JWTClaims holds custom JWT claims
 type JWTClaims struct {
-	UserID   kernel.UserID   `json:"user_id"`
-	TenantID kernel.TenantID `json:"tenant_id"`
-	Email    string          `json:"email"`
-	Name     string          `json:"name"`
+	UserID    kernel.UserID   `json:"user_id"`
+	TenantID  kernel.TenantID `json:"tenant_id"`
+	SessionID string          `json:"session_id"`
+	Email     string          `json:"email"`
+	Name      string          `json:"name"`
 	Scopes   []string        `json:"scopes"`
 	jwt.RegisteredClaims
 }
@@ -47,6 +48,7 @@ func (j *JWTService) GenerateAccessToken(userID kernel.UserID, tenantID kernel.T
 	email, _ := claims["email"].(string)
 	name, _ := claims["name"].(string)
 	scopes, _ := claims["scopes"].([]string)
+	sessionID, _ := claims["session_id"].(string)
 
 	// Default to empty scopes if not provided
 	if scopes == nil {
@@ -54,11 +56,12 @@ func (j *JWTService) GenerateAccessToken(userID kernel.UserID, tenantID kernel.T
 	}
 
 	jwtClaims := JWTClaims{
-		UserID:   userID,
-		TenantID: tenantID,
-		Email:    email,
-		Name:     name,
-		Scopes:   scopes,
+		UserID:    userID,
+		TenantID:  tenantID,
+		SessionID: sessionID,
+		Email:     email,
+		Name:      name,
+		Scopes:    scopes,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    j.issuer,
 			Subject:   userID.String(),
@@ -105,6 +108,7 @@ func (j *JWTService) ValidateAccessToken(tokenString string) (*TokenClaims, erro
 	return &TokenClaims{
 		UserID:    jwtClaims.UserID,
 		TenantID:  jwtClaims.TenantID,
+		SessionID: jwtClaims.SessionID,
 		Email:     jwtClaims.Email,
 		Name:      jwtClaims.Name,
 		Scopes:    jwtClaims.Scopes,

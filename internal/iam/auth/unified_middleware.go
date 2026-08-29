@@ -13,15 +13,18 @@ import (
 type UnifiedAuthMiddleware struct {
 	apiKeyService *apikeysrv.APIKeyService
 	tokenService  TokenService
+	sessionRepo   SessionRepository
 }
 
 func NewAPIKeyMiddleware(
 	apiKeyService *apikeysrv.APIKeyService,
 	tokenService TokenService,
+	sessionRepo SessionRepository,
 ) *UnifiedAuthMiddleware {
 	return &UnifiedAuthMiddleware{
 		apiKeyService: apiKeyService,
 		tokenService:  tokenService,
+		sessionRepo:   sessionRepo,
 	}
 }
 
@@ -85,13 +88,26 @@ func (am *UnifiedAuthMiddleware) authenticateJWT(c *fiber.Ctx) error {
 		})
 	}
 
+	// Validate session is still active
+	if claims.SessionID != "" {
+		session, err := am.sessionRepo.FindSession(c.Context(), claims.SessionID)
+		if err != nil || session.IsExpired() {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Session revoked or expired",
+			})
+		}
+		// Update last activity (best-effort, don't fail the request)
+		am.sessionRepo.UpdateSessionActivity(c.Context(), claims.SessionID)
+	}
+
 	authContext := &kernel.AuthContext{
-		UserID:   &claims.UserID,
-		TenantID: claims.TenantID,
-		Email:    claims.Email,
-		Name:     claims.Name,
-		Scopes:   claims.Scopes,
-		IsAPIKey: false,
+		UserID:    &claims.UserID,
+		TenantID:  claims.TenantID,
+		SessionID: claims.SessionID,
+		Email:     claims.Email,
+		Name:      claims.Name,
+		Scopes:    claims.Scopes,
+		IsAPIKey:  false,
 	}
 
 	c.Locals("auth", authContext)

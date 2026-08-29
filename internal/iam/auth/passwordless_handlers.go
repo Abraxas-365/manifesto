@@ -662,59 +662,89 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		h.userRepo.Save(c.Context(), *userEntity)
 	}
 
-	// 6. Generate JWT tokens with role-resolved scopes
-	effectiveScopes := h.resolveScopes(c.Context(), userEntity)
-	accessToken, err := h.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
-		"email":  userEntity.Email,
-		"name":   userEntity.Name,
-		"scopes": effectiveScopes,
-	})
+	// 6. Create session and generate tokens
+	response, err := h.createSessionAndTokens(c, userEntity, tenantEntity)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to generate access token",
+			"error": err.Error(),
 		})
 	}
 
-	refreshTokenStr, err := h.tokenService.GenerateRefreshToken(userEntity.ID)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to generate refresh token",
-		})
+	// 7. Update last login
+	userEntity.UpdateLastLogin()
+	h.userRepo.Save(c.Context(), *userEntity)
+
+	// 8. Audit: successful OTP login
+	h.auditService.LogLoginAttempt(c.Context(), userEntity.ID, tenantEntity.ID, "otp", true, c.IP(), c.Get("User-Agent"))
+
+	// 9. Return tokens and user info
+	return c.JSON(response)
+}
+
+// createSessionAndTokens creates a session, enforces max sessions, generates tokens,
+// and links the refresh token to the session. Mirrors AuthHandlers.createSessionAndTokens.
+func (h *PasswordlessAuthHandlers) createSessionAndTokens(c *fiber.Ctx, userEntity *user.User, tenantEntity *tenant.Tenant) (*TokenResponse, error) {
+	ctx := c.Context()
+	sessionID := uuid.NewString()
+
+	// Enforce max sessions: evict oldest if at limit
+	count, err := h.sessionRepo.CountActiveSessions(ctx, userEntity.ID)
+	if err == nil && count >= h.config.Auth.Session.MaxSessions {
+		oldest, err := h.sessionRepo.FindOldestSession(ctx, userEntity.ID)
+		if err == nil {
+			h.tokenRepo.RevokeRefreshTokensBySessionID(ctx, oldest.ID)
+			h.sessionRepo.RevokeSession(ctx, oldest.ID)
+		}
 	}
 
-	// 7. Save refresh token
-	refreshToken := RefreshToken{
-		ID:       uuid.NewString(),
-		Token:    refreshTokenStr,
-		UserID:   userEntity.ID,
-		TenantID: tenantEntity.ID,
-
-		ExpiresAt: time.Now().UTC().Add(h.config.Auth.JWT.RefreshTokenTTL),
-
-		CreatedAt: time.Now(),
-		IsRevoked: false,
-	}
-	h.tokenRepo.SaveRefreshToken(c.Context(), refreshToken)
-
-	// 8. Create session
+	// Create session
 	session := UserSession{
-		ID:           uuid.NewString(),
+		ID:           sessionID,
 		UserID:       userEntity.ID,
 		TenantID:     tenantEntity.ID,
-		SessionToken: uuid.NewString(),
 		IPAddress:    c.IP(),
 		UserAgent:    c.Get("User-Agent"),
 		ExpiresAt:    time.Now().UTC().Add(h.config.Auth.JWT.RefreshTokenTTL),
 		CreatedAt:    time.Now(),
 		LastActivity: time.Now(),
 	}
-	h.sessionRepo.SaveSession(c.Context(), session)
+	if err := h.sessionRepo.SaveSession(ctx, session); err != nil {
+		return nil, err
+	}
 
-	// 9. Update last login
-	userEntity.UpdateLastLogin()
-	h.userRepo.Save(c.Context(), *userEntity)
+	// Generate JWT with session_id embedded
+	effectiveScopes := h.resolveScopes(ctx, userEntity)
+	accessToken, err := h.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
+		"email":      userEntity.Email,
+		"name":       userEntity.Name,
+		"scopes":     effectiveScopes,
+		"session_id": sessionID,
+	})
+	if err != nil {
+		return nil, err
+	}
 
-	// 10. Set cookies
+	refreshTokenStr, err := h.tokenService.GenerateRefreshToken(userEntity.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Save refresh token linked to session
+	refreshToken := RefreshToken{
+		ID:        uuid.NewString(),
+		Token:     refreshTokenStr,
+		UserID:    userEntity.ID,
+		TenantID:  tenantEntity.ID,
+		SessionID: sessionID,
+		ExpiresAt: time.Now().UTC().Add(h.config.Auth.JWT.RefreshTokenTTL),
+		CreatedAt: time.Now(),
+		IsRevoked: false,
+	}
+	if err := h.tokenRepo.SaveRefreshToken(ctx, refreshToken); err != nil {
+		return nil, err
+	}
+
+	// Set cookies
 	c.Cookie(&fiber.Cookie{
 		Name:     h.config.Auth.Cookie.AccessTokenName,
 		Value:    accessToken,
@@ -737,18 +767,14 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		Path:     h.config.Auth.Cookie.Path,
 	})
 
-	// 11. Audit: successful OTP login
-	h.auditService.LogLoginAttempt(c.Context(), userEntity.ID, tenantEntity.ID, "otp", true, c.IP(), c.Get("User-Agent"))
-
-	// 12. Return tokens and user info
-	return c.JSON(TokenResponse{
+	return &TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshTokenStr,
 		TokenType:    "Bearer",
 		ExpiresIn:    int(h.config.Auth.JWT.AccessTokenTTL / time.Second),
 		User:         userEntity.ToDTO(),
 		Tenant:       tenantEntity.ToDTO(),
-	})
+	}, nil
 }
 
 // ============================================================================

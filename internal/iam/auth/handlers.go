@@ -115,7 +115,9 @@ func (ah *AuthHandlers) RegisterRoutes(router fiber.Router) {
 	auth.Get("/callback/:provider", ah.HandleCallback)
 	auth.Post("/refresh", ah.RefreshToken)
 	auth.Post("/logout", ah.Logout)
+	auth.Post("/logout/all", ah.LogoutAll)
 	auth.Get("/me", ah.GetCurrentUser)
+	auth.Get("/sessions", ah.ListSessions)
 }
 
 // InitiateLogin starts the OAuth login process
@@ -235,58 +237,12 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Generate application tokens
-	effectiveScopes := ah.resolveScopes(c.Context(), userEntity)
-	accessToken, err := ah.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
-		"email":  userEntity.Email,
-		"name":   userEntity.Name,
-		"scopes": effectiveScopes,
-	})
+	// Generate application tokens and create session
+	response, err := ah.createSessionAndTokens(c, userEntity, tenantEntity)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
-	}
-
-	refreshTokenStr, err := ah.tokenService.GenerateRefreshToken(userEntity.ID)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	// Save refresh token to database
-	refreshToken := RefreshToken{
-		ID:        generateID(),
-		Token:     refreshTokenStr,
-		UserID:    userEntity.ID,
-		TenantID:  tenantEntity.ID,
-		ExpiresAt: time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
-		CreatedAt: time.Now(),
-		IsRevoked: false,
-	}
-
-	if err := ah.tokenRepo.SaveRefreshToken(c.Context(), refreshToken); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to save refresh token",
-		})
-	}
-
-	// Create user session
-	session := UserSession{
-		ID:           generateID(),
-		UserID:       userEntity.ID,
-		TenantID:     tenantEntity.ID,
-		SessionToken: generateID(),
-		IPAddress:    c.IP(),
-		UserAgent:    c.Get("User-Agent"),
-		ExpiresAt:    time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
-		CreatedAt:    time.Now(),
-		LastActivity: time.Now(),
-	}
-
-	if err := ah.sessionRepo.SaveSession(c.Context(), session); err != nil {
-		// Log error but don't fail authentication
 	}
 
 	// Update user's last login
@@ -298,42 +254,12 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 	// Audit: successful OAuth login
 	ah.auditService.LogLoginAttempt(c.Context(), userEntity.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), true, c.IP(), c.Get("User-Agent"))
 
-	response := TokenResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshTokenStr,
-		TokenType:    "Bearer",
-		ExpiresIn:    int(ah.config.Auth.JWT.AccessTokenTTL / time.Second),
-		User:         userEntity.ToDTO(),
-		Tenant:       tenantEntity.ToDTO(),
-	}
-
-	// Set cookies for browser-based apps
-	c.Cookie(&fiber.Cookie{
-		Name:     ah.config.Auth.Cookie.AccessTokenName,
-		Value:    accessToken,
-		Expires:  time.Now().Add(ah.config.Auth.JWT.AccessTokenTTL),
-		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
-		Secure:   ah.config.Auth.Cookie.Secure,
-		SameSite: ah.config.Auth.Cookie.SameSite,
-		Domain:   ah.config.Auth.Cookie.Domain,
-		Path:     ah.config.Auth.Cookie.Path,
-	})
-
-	c.Cookie(&fiber.Cookie{
-		Name:     ah.config.Auth.Cookie.RefreshTokenName,
-		Value:    refreshTokenStr,
-		Expires:  time.Now().Add(ah.config.Auth.JWT.RefreshTokenTTL),
-		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
-		Secure:   ah.config.Auth.Cookie.Secure,
-		SameSite: ah.config.Auth.Cookie.SameSite,
-		Domain:   ah.config.Auth.Cookie.Domain,
-		Path:     ah.config.Auth.Cookie.Path,
-	})
-
 	return c.JSON(response)
 }
 
-// RefreshToken renews an access token using a refresh token
+// RefreshToken renews an access token using a refresh token.
+// Implements refresh token rotation: the old token is revoked and a new one is issued.
+// If a revoked token is presented, it indicates theft — the entire session is revoked.
 func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 	req, err := kernel.BindAndValidate[RefreshTokenRequest](c)
 	if err != nil {
@@ -345,7 +271,7 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		}
 	}
 
-	// Find refresh token in database
+	// Find refresh token in database (includes revoked tokens for theft detection)
 	refreshToken, err := ah.tokenRepo.FindRefreshToken(c.Context(), req.RefreshToken)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -353,11 +279,36 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
-	// Verify refresh token validity
-	if !refreshToken.IsValid() {
+	// Theft detection: if the token was already revoked, someone stole it.
+	// Revoke the entire session to protect the user.
+	if refreshToken.IsRevoked {
+		if refreshToken.SessionID != "" {
+			ah.tokenRepo.RevokeRefreshTokensBySessionID(c.Context(), refreshToken.SessionID)
+			ah.sessionRepo.RevokeSession(c.Context(), refreshToken.SessionID)
+		}
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": ErrInvalidRefreshToken().Error(),
+		})
+	}
+
+	// Verify refresh token validity (expiration)
+	if refreshToken.IsExpired() {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": ErrExpiredRefreshToken().Error(),
 		})
+	}
+
+	// Verify the session is still active
+	if refreshToken.SessionID != "" {
+		session, err := ah.sessionRepo.FindSession(c.Context(), refreshToken.SessionID)
+		if err != nil || session.IsExpired() {
+			ah.tokenRepo.RevokeRefreshToken(c.Context(), req.RefreshToken)
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Session expired or revoked",
+			})
+		}
+		// Update session activity
+		ah.sessionRepo.UpdateSessionActivity(c.Context(), refreshToken.SessionID)
 	}
 
 	// Find user and tenant
@@ -389,12 +340,17 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
-	// Generate new access token
+	// --- Rotate refresh token ---
+	// 1. Revoke the old refresh token
+	ah.tokenRepo.RevokeRefreshToken(c.Context(), req.RefreshToken)
+
+	// 2. Generate new access token with session_id
 	effectiveScopes := ah.resolveScopes(c.Context(), userEntity)
 	accessToken, err := ah.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
-		"email":  userEntity.Email,
-		"name":   userEntity.Name,
-		"scopes": effectiveScopes,
+		"email":      userEntity.Email,
+		"name":       userEntity.Name,
+		"scopes":     effectiveScopes,
+		"session_id": refreshToken.SessionID,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -402,10 +358,35 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
+	// 3. Generate new refresh token
+	newRefreshTokenStr, err := ah.tokenService.GenerateRefreshToken(userEntity.ID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// 4. Save new refresh token linked to same session
+	newRefreshToken := RefreshToken{
+		ID:        generateID(),
+		Token:     newRefreshTokenStr,
+		UserID:    userEntity.ID,
+		TenantID:  tenantEntity.ID,
+		SessionID: refreshToken.SessionID,
+		ExpiresAt: time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		CreatedAt: time.Now(),
+		IsRevoked: false,
+	}
+	if err := ah.tokenRepo.SaveRefreshToken(c.Context(), newRefreshToken); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to save refresh token",
+		})
+	}
+
 	// Audit: token refresh
 	ah.auditService.LogTokenRefresh(c.Context(), userEntity.ID, tenantEntity.ID, c.IP())
 
-	// Update access token cookie
+	// Update cookies
 	c.Cookie(&fiber.Cookie{
 		Name:     ah.config.Auth.Cookie.AccessTokenName,
 		Value:    accessToken,
@@ -417,69 +398,122 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 		Path:     ah.config.Auth.Cookie.Path,
 	})
 
+	c.Cookie(&fiber.Cookie{
+		Name:     ah.config.Auth.Cookie.RefreshTokenName,
+		Value:    newRefreshTokenStr,
+		Expires:  time.Now().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
+		Secure:   ah.config.Auth.Cookie.Secure,
+		SameSite: ah.config.Auth.Cookie.SameSite,
+		Domain:   ah.config.Auth.Cookie.Domain,
+		Path:     ah.config.Auth.Cookie.Path,
+	})
+
 	return c.JSON(fiber.Map{
-		"access_token": accessToken,
-		"token_type":   "Bearer",
-		"expires_in":   int(ah.config.Auth.JWT.AccessTokenTTL / time.Second),
+		"access_token":  accessToken,
+		"refresh_token": newRefreshTokenStr,
+		"token_type":    "Bearer",
+		"expires_in":    int(ah.config.Auth.JWT.AccessTokenTTL / time.Second),
 	})
 }
 
-// Logout invalidates user tokens and sessions
+// Logout invalidates the current session and its tokens (single-device logout)
 func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
-	// Try to get auth context from middleware
 	authContext, ok := GetAuthContext(c)
-	if !ok {
-		// Fallback: try to decode the token
-		var token string
-		authHeader := c.Get("Authorization")
-		if authHeader != "" {
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) == 2 && parts[0] == "Bearer" && parts[1] != "" {
-				token = parts[1]
-			}
-		}
-		if token == "" {
-			token = c.Cookies(ah.config.Auth.Cookie.AccessTokenName)
-		}
-		if token == "" {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": iam.ErrUnauthorized().Error(),
-			})
-		}
-		claims, err := ah.tokenService.ValidateAccessToken(token)
-		if err != nil {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": iam.ErrUnauthorized().Error(),
-			})
-		}
-		authContext = &kernel.AuthContext{
-			UserID:   &claims.UserID,
-			TenantID: claims.TenantID,
-			Email:    claims.Email,
-			Name:     claims.Name,
-			Scopes:   claims.Scopes,
-			IsAPIKey: false,
-		}
+	if !ok || authContext.UserID == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": iam.ErrUnauthorized().Error(),
+		})
 	}
 
-	if authContext.UserID == nil {
-		return iam.ErrUnauthorized()
-	}
-
-	// Revoke all refresh tokens
-	if err := ah.tokenRepo.RevokeAllUserTokens(c.Context(), *authContext.UserID); err != nil {
-		// Log error but don't fail
-	}
-
-	// Revoke all sessions
-	if err := ah.sessionRepo.RevokeAllUserSessions(c.Context(), *authContext.UserID); err != nil {
-		// Log error but don't fail
+	// Revoke current session and its tokens
+	if authContext.SessionID != "" {
+		ah.tokenRepo.RevokeRefreshTokensBySessionID(c.Context(), authContext.SessionID)
+		ah.sessionRepo.RevokeSession(c.Context(), authContext.SessionID)
 	}
 
 	// Audit: logout
 	ah.auditService.LogLogout(c.Context(), *authContext.UserID, authContext.TenantID, c.IP())
 
 	// Clear cookies
+	ah.clearAuthCookies(c)
+
+	return c.JSON(fiber.Map{
+		"message": "Logged out successfully",
+	})
+}
+
+// LogoutAll invalidates all user sessions and tokens across all devices
+func (ah *AuthHandlers) LogoutAll(c *fiber.Ctx) error {
+	authContext, ok := GetAuthContext(c)
+	if !ok || authContext.UserID == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": iam.ErrUnauthorized().Error(),
+		})
+	}
+
+	// Revoke all refresh tokens
+	ah.tokenRepo.RevokeAllUserTokens(c.Context(), *authContext.UserID)
+
+	// Revoke all sessions
+	ah.sessionRepo.RevokeAllUserSessions(c.Context(), *authContext.UserID)
+
+	// Audit: logout
+	ah.auditService.LogLogout(c.Context(), *authContext.UserID, authContext.TenantID, c.IP())
+
+	// Clear cookies
+	ah.clearAuthCookies(c)
+
+	return c.JSON(fiber.Map{
+		"message": "All sessions logged out successfully",
+	})
+}
+
+// ListSessions returns all active sessions for the current user
+func (ah *AuthHandlers) ListSessions(c *fiber.Ctx) error {
+	authContext, ok := GetAuthContext(c)
+	if !ok || authContext.UserID == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": iam.ErrUnauthorized().Error(),
+		})
+	}
+
+	sessions, err := ah.sessionRepo.FindUserSessions(c.Context(), *authContext.UserID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to list sessions",
+		})
+	}
+
+	type sessionDTO struct {
+		ID           string    `json:"id"`
+		IPAddress    string    `json:"ip_address"`
+		UserAgent    string    `json:"user_agent"`
+		CreatedAt    time.Time `json:"created_at"`
+		LastActivity time.Time `json:"last_activity"`
+		Current      bool      `json:"current"`
+	}
+
+	dtos := make([]sessionDTO, len(sessions))
+	for i, s := range sessions {
+		dtos[i] = sessionDTO{
+			ID:           s.ID,
+			IPAddress:    s.IPAddress,
+			UserAgent:    s.UserAgent,
+			CreatedAt:    s.CreatedAt,
+			LastActivity: s.LastActivity,
+			Current:      s.ID == authContext.SessionID,
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"sessions": dtos,
+		"count":    len(dtos),
+	})
+}
+
+// clearAuthCookies clears access and refresh token cookies
+func (ah *AuthHandlers) clearAuthCookies(c *fiber.Ctx) {
 	c.Cookie(&fiber.Cookie{
 		Name:     ah.config.Auth.Cookie.AccessTokenName,
 		Value:    "",
@@ -501,51 +535,15 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 		Domain:   ah.config.Auth.Cookie.Domain,
 		Path:     ah.config.Auth.Cookie.Path,
 	})
-
-	return c.JSON(fiber.Map{
-		"message": "Logged out successfully",
-	})
 }
 
 // GetCurrentUser retrieves the authenticated user's information
 func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok {
-		// Fallback: try to decode the token
-		var token string
-		authHeader := c.Get("Authorization")
-		if authHeader != "" {
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) == 2 && parts[0] == "Bearer" && parts[1] != "" {
-				token = parts[1]
-			}
-		}
-		if token == "" {
-			token = c.Cookies(ah.config.Auth.Cookie.AccessTokenName)
-		}
-		if token == "" {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": iam.ErrUnauthorized().Error(),
-			})
-		}
-		claims, err := ah.tokenService.ValidateAccessToken(token)
-		if err != nil {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": iam.ErrUnauthorized().Error(),
-			})
-		}
-		authContext = &kernel.AuthContext{
-			UserID:   &claims.UserID,
-			TenantID: claims.TenantID,
-			Email:    claims.Email,
-			Name:     claims.Name,
-			Scopes:   claims.Scopes,
-			IsAPIKey: false,
-		}
-	}
-
-	if authContext.UserID == nil {
-		return iam.ErrUnauthorized()
+	if !ok || authContext.UserID == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": iam.ErrUnauthorized().Error(),
+		})
 	}
 
 	// Find complete user
@@ -735,6 +733,102 @@ func (ah *AuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.
 		AssignedAt: time.Now().UTC(),
 	}
 	ah.roleRepo.AssignToUser(ctx, userRole)
+}
+
+// createSessionAndTokens creates a session, enforces max sessions, generates tokens,
+// and links the refresh token to the session. Shared by OAuth and passwordless flows.
+func (ah *AuthHandlers) createSessionAndTokens(c *fiber.Ctx, userEntity *user.User, tenantEntity *tenant.Tenant) (*TokenResponse, error) {
+	ctx := c.Context()
+	sessionID := generateID()
+
+	// Enforce max sessions: evict oldest if at limit
+	count, err := ah.sessionRepo.CountActiveSessions(ctx, userEntity.ID)
+	if err == nil && count >= ah.config.Auth.Session.MaxSessions {
+		oldest, err := ah.sessionRepo.FindOldestSession(ctx, userEntity.ID)
+		if err == nil {
+			ah.tokenRepo.RevokeRefreshTokensBySessionID(ctx, oldest.ID)
+			ah.sessionRepo.RevokeSession(ctx, oldest.ID)
+		}
+	}
+
+	// Create session
+	session := UserSession{
+		ID:           sessionID,
+		UserID:       userEntity.ID,
+		TenantID:     tenantEntity.ID,
+		IPAddress:    c.IP(),
+		UserAgent:    c.Get("User-Agent"),
+		ExpiresAt:    time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		CreatedAt:    time.Now(),
+		LastActivity: time.Now(),
+	}
+	if err := ah.sessionRepo.SaveSession(ctx, session); err != nil {
+		return nil, err
+	}
+
+	// Generate JWT with session_id embedded
+	effectiveScopes := ah.resolveScopes(ctx, userEntity)
+	accessToken, err := ah.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
+		"email":      userEntity.Email,
+		"name":       userEntity.Name,
+		"scopes":     effectiveScopes,
+		"session_id": sessionID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	refreshTokenStr, err := ah.tokenService.GenerateRefreshToken(userEntity.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Save refresh token linked to session
+	refreshToken := RefreshToken{
+		ID:        generateID(),
+		Token:     refreshTokenStr,
+		UserID:    userEntity.ID,
+		TenantID:  tenantEntity.ID,
+		SessionID: sessionID,
+		ExpiresAt: time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		CreatedAt: time.Now(),
+		IsRevoked: false,
+	}
+	if err := ah.tokenRepo.SaveRefreshToken(ctx, refreshToken); err != nil {
+		return nil, err
+	}
+
+	// Set cookies
+	c.Cookie(&fiber.Cookie{
+		Name:     ah.config.Auth.Cookie.AccessTokenName,
+		Value:    accessToken,
+		Expires:  time.Now().Add(ah.config.Auth.JWT.AccessTokenTTL),
+		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
+		Secure:   ah.config.Auth.Cookie.Secure,
+		SameSite: ah.config.Auth.Cookie.SameSite,
+		Domain:   ah.config.Auth.Cookie.Domain,
+		Path:     ah.config.Auth.Cookie.Path,
+	})
+
+	c.Cookie(&fiber.Cookie{
+		Name:     ah.config.Auth.Cookie.RefreshTokenName,
+		Value:    refreshTokenStr,
+		Expires:  time.Now().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		HTTPOnly: ah.config.Auth.Cookie.HTTPOnly,
+		Secure:   ah.config.Auth.Cookie.Secure,
+		SameSite: ah.config.Auth.Cookie.SameSite,
+		Domain:   ah.config.Auth.Cookie.Domain,
+		Path:     ah.config.Auth.Cookie.Path,
+	})
+
+	return &TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshTokenStr,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(ah.config.Auth.JWT.AccessTokenTTL / time.Second),
+		User:         userEntity.ToDTO(),
+		Tenant:       tenantEntity.ToDTO(),
+	}, nil
 }
 
 // Helper functions

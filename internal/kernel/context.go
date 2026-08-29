@@ -6,12 +6,13 @@ package kernel
 
 // AuthContext is the authentication context injected into each request
 type AuthContext struct {
-	UserID   *UserID  `json:"user_id"`
-	TenantID TenantID `json:"tenant_id"`
-	Email    string   `json:"email"`
-	Name     string   `json:"name"`
-	Scopes   []string `json:"scopes"`
-	IsAPIKey bool     `json:"is_api_key"`
+	UserID    *UserID  `json:"user_id"`
+	TenantID  TenantID `json:"tenant_id"`
+	SessionID string   `json:"session_id,omitempty"`
+	Email     string   `json:"email"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	IsAPIKey  bool     `json:"is_api_key"`
 }
 
 // ============================================================================
