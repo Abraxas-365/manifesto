@@ -65,7 +65,7 @@ func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest
 	}
 
 	// Validate scopes
-	if err := s.validateScopes(scopes); err != nil {
+	if err := s.validateScopes(scopes, nil); err != nil {
 		return nil, err
 	}
 
@@ -168,7 +168,7 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 
 	// Update scopes if provided
 	if req.Scopes != nil && len(req.Scopes) > 0 {
-		if err := s.validateScopes(req.Scopes); err != nil {
+		if err := s.validateScopes(req.Scopes, nil); err != nil {
 			return nil, err
 		}
 		userEntity.SetScopes(req.Scopes)
@@ -240,20 +240,22 @@ func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tena
 // Scope Management Methods
 // ============================================================================
 
-// AddScopesToUser adds scopes to a user
-func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopes []string) error {
+// AddScopesToUser adds scopes to a user.
+// callerScopes are the effective scopes of the authenticated caller, used to
+// enforce that only platform operators can assign platform-reserved scopes.
+func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string, callerScopes []string) error {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
 	// Validate scopes
-	if err := s.validateScopes(scopes); err != nil {
+	if err := s.validateScopes(newScopes, callerScopes); err != nil {
 		return err
 	}
 
 	// Add scopes (avoiding duplicates)
-	for _, scope := range scopes {
+	for _, scope := range newScopes {
 		if !userEntity.HasScope(scope) {
 			userEntity.AddScope(scope)
 		}
@@ -264,7 +266,7 @@ func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID,
 
 // RemoveScopesFromUser removes scopes from a user
 func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopeList []string) error {
-	if err := s.validateScopes(scopeList); err != nil {
+	if err := s.validateScopes(scopeList, nil); err != nil {
 		return err
 	}
 
@@ -280,19 +282,21 @@ func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.Us
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
-// SetUserScopes sets the scopes for a user (replaces existing ones)
-func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopes []string) error {
+// SetUserScopes sets the scopes for a user (replaces existing ones).
+// callerScopes are the effective scopes of the authenticated caller, used to
+// enforce that only platform operators can assign platform-reserved scopes.
+func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string, callerScopes []string) error {
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
 	// Validate scopes
-	if err := s.validateScopes(scopes); err != nil {
+	if err := s.validateScopes(newScopes, callerScopes); err != nil {
 		return err
 	}
 
-	userEntity.SetScopes(scopes)
+	userEntity.SetScopes(newScopes)
 	return s.userRepo.Save(ctx, *userEntity)
 }
 
@@ -322,28 +326,6 @@ func (s *UserService) GetUserScopes(ctx context.Context, userID kernel.UserID, t
 	}, nil
 }
 
-// GetAllAvailableScopes returns all available scopes in the system
-func (s *UserService) GetAllAvailableScopes() *user.AvailableScopesResponse {
-	allScopes := scopes.GetAllScopes()
-	categories := make(map[string][]user.ScopeDetail)
-
-	// Group by category
-	for _, scope := range allScopes {
-		category := scopes.GetScopeCategory(scope)
-		scopeDetail := user.ScopeDetail{
-			Name:        scope,
-			Description: scopes.GetScopeDescription(scope),
-			Category:    category,
-		}
-		categories[category] = append(categories[category], scopeDetail)
-	}
-
-	return &user.AvailableScopesResponse{
-		TotalScopes: len(allScopes),
-		Categories:  categories,
-	}
-}
-
 // ============================================================================
 // Private Helper Methods
 // ============================================================================
@@ -356,10 +338,18 @@ func (s *UserService) resolveScopes(req user.CreateUserRequest) ([]string, error
 	return []string{}, nil
 }
 
-// validateScopes validates that the scopes are valid
-func (s *UserService) validateScopes(scopesl []string) error {
+// validateScopes validates that the scopes are valid and that the caller is
+// authorized to assign them. Platform scopes (platform:*) require the caller
+// to hold a platform scope themselves.
+func (s *UserService) validateScopes(scopesl []string, callerScopes []string) error {
 	if len(scopesl) == 0 {
 		return user.ErrInvalidScopes().WithDetail("reason", "at least one scope is required")
+	}
+
+	// Reject platform scopes from non-platform callers
+	if scopes.ContainsPlatformScope(scopesl) && !scopes.CallerHasPlatformScope(callerScopes) {
+		return user.ErrInvalidScopes().
+			WithDetail("reason", "platform scopes can only be assigned by platform administrators")
 	}
 
 	// Validate each scope

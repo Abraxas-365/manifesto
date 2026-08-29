@@ -6,25 +6,22 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/config"
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey"
-	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeyapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeyinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeysrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth/authinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
-	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationsrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp/otpinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp/otpsrv"
-	"github.com/Abraxas-365/manifesto/internal/iam/role/roleapi"
-	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/role/roleinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/role/rolesrv"
+	"github.com/Abraxas-365/manifesto/internal/iam/scopes/scopeapi"
+	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantsrv"
-	"github.com/Abraxas-365/manifesto/internal/iam/user/userapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/userinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/usersrv"
 	"github.com/Abraxas-365/manifesto/internal/logx"
@@ -53,12 +50,13 @@ type Deps struct {
 
 // ---------------------------------------------------------------------------
 // Container: the public surface of the IAM module.
-// Only expose what other modules or cmd/ actually need.
-// Internal repos, infra details, etc. stay private.
+// Services are exposed for developers to wire their own handlers.
+// Only auth and tenant handlers are pre-wired (auth is essential,
+// tenant routes were designed explicitly for platform admin vs self-service).
 // ---------------------------------------------------------------------------
 
 type Container struct {
-	// Services — available for cross-module consumption via interfaces
+	// Services — available for cross-module consumption and custom handlers
 	UserService       *usersrv.UserService
 	TenantService     *tenantsrv.TenantService
 	InvitationService *invitationsrv.InvitationService
@@ -71,12 +69,10 @@ type Container struct {
 	OAuthHandlers        *auth.AuthHandlers
 	PasswordlessHandlers *auth.PasswordlessAuthHandlers
 
-	// API handlers — needed by cmd/ to register routes
-	APIKeyHandlers     *apikeyapi.APIKeyHandlers
-	InvitationHandlers *invitationapi.InvitationHandlers
-	RoleHandlers       *roleapi.RoleHandlers
-	ScopeHandlers      *userapi.ScopeHandlers
-	UserHandlers       *userapi.UserHandlers
+	// Scope catalog handler — read-only endpoint listing available scopes
+	ScopeCatalogHandler *scopeapi.ScopeCatalogHandler
+
+	// Tenant handlers — platform admin + self-service
 	TenantHandlers         *tenantapi.TenantHandlers
 	PlatformTenantHandlers *tenantapi.PlatformTenantHandlers
 
@@ -231,15 +227,11 @@ func New(deps Deps) *Container {
 
 	// ── API handlers ─────────────────────────────────────────────────────
 
-	c.APIKeyHandlers = apikeyapi.NewAPIKeyHandlers(c.APIKeyService)
-	c.InvitationHandlers = invitationapi.NewInvitationHandlers(c.InvitationService)
-	c.RoleHandlers = roleapi.NewRoleHandlers(c.RoleService)
-	c.ScopeHandlers = userapi.NewScopeHandlers(c.UserService)
-	c.UserHandlers = userapi.NewUserHandlers(c.UserService)
+	c.ScopeCatalogHandler = scopeapi.NewScopeCatalogHandler()
 	c.TenantHandlers = tenantapi.NewTenantHandlers(c.TenantService)
+	c.PlatformTenantHandlers = tenantapi.NewPlatformTenantHandlers(c.TenantService)
 
 	// ── Middleware ────────────────────────────────────────────────────────
-
 
 	c.UnifiedAuthMiddleware = auth.NewAPIKeyMiddleware(c.APIKeyService, c.TokenService)
 

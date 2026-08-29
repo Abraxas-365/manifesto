@@ -142,16 +142,16 @@ func registerRoutes(app *fiber.App, container *Container) {
 	container.IAM.OAuthHandlers.RegisterRoutes(api)
 	container.IAM.PasswordlessHandlers.RegisterRoutes(api)
 
-	// Protected API routes
-	container.IAM.APIKeyHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
-	container.IAM.InvitationHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
-	container.IAM.RoleHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
-	container.IAM.ScopeHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
-	container.IAM.UserHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	// Scope catalog (read-only, authenticated)
+	container.IAM.ScopeCatalogHandler.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+
+	// Tenant self-service routes
 	container.IAM.TenantHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
 
 	// Platform admin routes
 	container.IAM.PlatformTenantHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+
+	// manifesto:route-registration — add your own routes here
 
 	logx.Info("✅ All routes registered")
 }

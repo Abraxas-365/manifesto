@@ -305,54 +305,12 @@ type ScopeDetail struct {
 	Category    string `json:"category"`
 }
 
-// AddScopesRequest for adding scopes to a user
-type AddScopesRequest struct {
-	Scopes []string `json:"scopes"`
-}
-
-func (r *AddScopesRequest) Validate() error {
-	if len(r.Scopes) < 1 {
-		return errx.Validation("At least one scope is required").WithDetail("field", "scopes")
-	}
-	return nil
-}
-
-// RemoveScopesRequest for removing scopes from a user
-type RemoveScopesRequest struct {
-	Scopes []string `json:"scopes"`
-}
-
-func (r *RemoveScopesRequest) Validate() error {
-	if len(r.Scopes) < 1 {
-		return errx.Validation("At least one scope is required").WithDetail("field", "scopes")
-	}
-	return nil
-}
-
-// SuspendUserRequest for suspending a user
-type SuspendUserRequest struct {
-	Reason string `json:"reason"`
-}
-
-func (r *SuspendUserRequest) Validate() error {
-	if strings.TrimSpace(r.Reason) == "" {
-		return errx.Validation("Reason is required").WithDetail("field", "reason")
-	}
-	return nil
-}
-
 // UserScopesResponse response with a user's scopes
 type UserScopesResponse struct {
 	UserID       kernel.UserID `json:"user_id"`
 	Scopes       []string      `json:"scopes"`
 	ScopeDetails []ScopeDetail `json:"scope_details"`
 	TotalScopes  int           `json:"total_scopes"`
-}
-
-// AvailableScopesResponse response with all available scopes
-type AvailableScopesResponse struct {
-	TotalScopes int                      `json:"total_scopes"`
-	Categories  map[string][]ScopeDetail `json:"categories"`
 }
 
 // ============================================================================

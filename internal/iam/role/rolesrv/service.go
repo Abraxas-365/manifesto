@@ -35,6 +35,7 @@ func (s *RoleService) CreateRole(
 	ctx context.Context,
 	tenantID kernel.TenantID,
 	req role.CreateRoleRequest,
+	callerScopes []string,
 ) (*role.Role, error) {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -50,7 +51,7 @@ func (s *RoleService) CreateRole(
 		return nil, role.ErrRoleAlreadyExists().WithDetail("name", req.Name)
 	}
 
-	if err := s.validateScopes(req.Scopes); err != nil {
+	if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
 		return nil, err
 	}
 
@@ -109,6 +110,7 @@ func (s *RoleService) UpdateRole(
 	roleID kernel.RoleID,
 	tenantID kernel.TenantID,
 	req role.UpdateRoleRequest,
+	callerScopes []string,
 ) (*role.RoleDTO, error) {
 	r, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
 	if err != nil {
@@ -127,7 +129,7 @@ func (s *RoleService) UpdateRole(
 		r.Description = *req.Description
 	}
 	if req.Scopes != nil {
-		if err := s.validateScopes(req.Scopes); err != nil {
+		if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
 			return nil, err
 		}
 		r.SetScopes(req.Scopes)
@@ -271,9 +273,15 @@ func (s *RoleService) resolveEffectiveScopes(directScopes []string, roles []*rol
 	return result
 }
 
-func (s *RoleService) validateScopes(scopesList []string) error {
+func (s *RoleService) validateScopes(scopesList []string, callerScopes []string) error {
 	if len(scopesList) == 0 {
 		return role.ErrRoleInvalidScopes().WithDetail("reason", "at least one scope is required")
+	}
+
+	// Reject platform scopes from non-platform callers
+	if scopes.ContainsPlatformScope(scopesList) && !scopes.CallerHasPlatformScope(callerScopes) {
+		return role.ErrRoleInvalidScopes().
+			WithDetail("reason", "platform scopes can only be assigned by platform administrators")
 	}
 
 	var invalidScopes []string

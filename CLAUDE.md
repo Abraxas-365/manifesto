@@ -27,7 +27,7 @@ cmd/
     server.go            # Fiber app setup, middleware, route registration
 internal/
     config/              # Environment-based configuration (env vars)
-    kernel/              # Shared value objects: UserID, TenantID, AuthContext, Paginated[T]
+    kernel/              # Shared types: typed IDs, AuthContext, BindAndValidate, Store
     errx/                # Structured error system with registries, codes, and HTTP status mapping
     logx/                # Structured logger with levels, formatters (console/JSON)
     asyncx/              # Concurrency primitives: Map, Pool, Batch, Debounce, Pipeline, Stream
@@ -36,10 +36,95 @@ internal/
     jobx/                # Background job queue (Redis-backed, retries, delayed jobs)
     ptrx/                # Pointer/optional helpers: Ptr[T], Val[T], Coalesce, Map, Filter
     iam/                 # Identity & Access Management (see below)
-    ai/                  # AI provider abstraction (OpenAI, Anthropic, Bedrock, Gemini)
+    ai/                  # AI provider abstraction and harness
 manifesto.yaml           # Module manifest - tracks which manifesto modules are installed
 migrations/              # SQL migrations (Postgres)
 ```
+
+## Kernel Package
+
+The `internal/kernel/` package contains shared types and utilities used across all modules. It is the only package that every module may depend on — it has zero dependencies on any domain module.
+
+### Typed IDs (`common_ids.go`)
+
+All domain entity IDs use typed string wrappers. This prevents accidentally passing a `UserID` where a `TenantID` is expected:
+
+```go
+kernel.UserID         // User identity
+kernel.TenantID       // Tenant identity
+kernel.RoleID         // Role identity
+kernel.InvitationID   // Invitation identity
+kernel.APIKeyID       // API key identity
+
+// Construction and usage
+id := kernel.NewUserID("uuid-here")
+id.String()   // → "uuid-here"
+id.IsEmpty()  // → false
+```
+
+Handlers convert URL params immediately: `userID := kernel.NewUserID(c.Params("id"))`. Raw `string` must never flow through service or domain layers for entity IDs.
+
+### Request Binding and Validation (`bind.go`)
+
+`BindAndValidate[T]` is a generic helper that parses the request body and calls the struct's `Validate()` method in one step. Every request DTO must implement `Validate() error` via a pointer receiver — the compiler enforces this:
+
+```go
+func (h *UserHandlers) CreateUser(c *fiber.Ctx) error {
+    req, err := kernel.BindAndValidate[user.CreateUserRequest](c)
+    if err != nil {
+        return err  // returns errx.Validation automatically
+    }
+    // req is parsed and validated
+}
+```
+
+Request DTOs use explicit `Validate()` methods instead of struct tags (e.g., no `validate:"required"`). This keeps validation logic visible and testable:
+
+```go
+type CreateUserRequest struct {
+    Email  string   `json:"email"`
+    Name   string   `json:"name"`
+    Scopes []string `json:"scopes"`
+}
+
+func (r *CreateUserRequest) Validate() error {
+    if r.Email == "" {
+        return errx.Validation("email is required")
+    }
+    // ...
+    return nil
+}
+```
+
+### Key-Value Store Abstraction (`store.go`)
+
+`kernel.Store[T]` provides a generic interface for simple key-value storage. Modules that need lightweight persistence (configuration, feature flags, caches) depend on this interface rather than importing specific infrastructure:
+
+```go
+type Store[T any] interface {
+    Get(ctx context.Context, key string) (T, error)
+    Set(ctx context.Context, key string, value T) error
+    Delete(ctx context.Context, key string) error
+    Exists(ctx context.Context, key string) (bool, error)
+}
+```
+
+### Auth Context (`context.go`)
+
+`kernel.AuthContext` carries the authenticated user's identity and scopes through every request. Injected by the auth middleware:
+
+```go
+type AuthContext struct {
+    UserID   *UserID  `json:"user_id"`
+    TenantID TenantID `json:"tenant_id"`
+    Email    string   `json:"email"`
+    Name     string   `json:"name"`
+    Scopes   []string `json:"scopes"`
+    IsAPIKey bool     `json:"is_api_key"`
+}
+```
+
+Scope matching supports exact match, global wildcard `*`, and prefix wildcards (`users:*` matches `users:read`). Use `kernel.MatchScope()`, `kernel.ScopesContain()`, or `AuthContext.HasScope()`.
 
 ## Container Pattern
 
@@ -117,6 +202,7 @@ Permissions use a flat scope system inspired by OAuth scopes, not traditional RB
 users:read, users:write, users:delete
 roles:read, roles:write, roles:assign
 tenants:read, tenants:write
+platform:tenants:read, platform:tenants:write
 ```
 
 Wildcard support:
@@ -124,9 +210,35 @@ Wildcard support:
 - `users:*` grants all `users:` scopes
 - Matching logic is in `kernel.MatchScope()` and `kernel.ScopesContain()`
 
-Scopes are defined in `internal/iam/scopes/`:
-- `common_scopes.go` - Reusable scopes that ship with manifesto (users, roles, tenants, api_keys, invitations, settings, audit, reports, integrations, notifications, templates)
-- `proj_scopes.go` - **Project-specific scopes go here.** Add your domain scopes to `DomainScopeCategories` and `DomainScopeDescriptions`. They merge with common scopes at init time.
+Scopes are defined in `internal/iam/scopes/scopes.go`:
+- **Tenant scopes** — used by tenant admins to manage their own tenant: `users:*`, `roles:*`, `scopes:*`, `tenants:*`, `api_keys:*`, `invitations:*`
+- **Platform scopes** — reserved for platform operators: `platform:tenants:*` (read, write, delete, config, suspend)
+
+All scope constants live in `scopes.go` as typed constants (e.g., `scopes.ScopeUsersRead`). Handler route registration must use these constants, never hardcoded strings:
+
+```go
+// Correct
+tenants.Get("/", authMiddleware.RequireScope(iamscopes.ScopeTenantsRead), h.GetMyTenant)
+
+// Wrong — never do this
+tenants.Get("/", authMiddleware.RequireScope("tenants:read"), h.GetMyTenant)
+```
+
+The scope catalog endpoint (`GET /api/v1/scopes/`) returns scopes grouped by category with descriptions, used by admin UIs to render permission checkboxes when creating roles.
+
+### Platform Scope Protection
+
+Scopes prefixed with `platform:` are reserved for platform operators and **cannot be assigned by regular tenant admins**. This is enforced at three levels:
+
+1. **Scope assignment** — `usersrv.AddScopesToUser`, `usersrv.SetUserScopes`, `rolesrv.CreateRole`, `rolesrv.UpdateRole`, `apikeysrv.CreateAPIKey`, `apikeysrv.UpdateAPIKey` all reject platform scopes unless the caller themselves holds a platform scope.
+2. **Scope catalog** — `GET /api/v1/scopes/` hides the "Platform: Tenants" category entirely from non-platform callers.
+3. **Scope validation helpers** in `scopes/scope_manager.go`:
+   - `IsPlatformScope(scope)` — checks `platform:` prefix
+   - `ContainsPlatformScope(scopes)` — checks if any scope in a slice is platform-reserved
+   - `CallerHasPlatformScope(callerScopes)` — checks if caller has `*` or any `platform:` scope
+   - `FilterNonPlatformCategories()` — returns scope catalog without platform categories
+
+To add new platform scopes (e.g., `platform:users:*` for cross-tenant user management), add them to `scopes.go` with the `platform:` prefix and they automatically inherit these protections.
 
 ### Roles
 
@@ -134,7 +246,7 @@ Roles (`internal/iam/role/`) are named collections of scopes assigned to users, 
 
 ```go
 type Role struct {
-    ID          string
+    ID          kernel.RoleID
     TenantID    kernel.TenantID
     Name        string
     Description string
@@ -154,7 +266,7 @@ CRUD: create roles, assign/unassign to users, list user roles and effective scop
 3. Resolves effective scopes (direct + role scopes)
 4. Injects `kernel.AuthContext` into Fiber context
 
-Use `middleware.RequireScope("scope:action")` on route groups for authorization.
+Use `middleware.RequireScope(iamscopes.ScopeXxx)` on route groups for authorization.
 
 ### API Keys
 
@@ -167,15 +279,76 @@ API keys (`internal/iam/apikey/`) are tenant-scoped, have their own scopes, and 
 ### Invitations
 
 The invitation system (`internal/iam/invitation/`) handles tenant user onboarding:
-1. Admin creates invitation with email + scopes
+1. Admin creates invitation with email + scopes + optional role
 2. Email sent via `NotificationService` interface
 3. When invited user signs up (OAuth or passwordless), invitation is auto-accepted
-4. User receives the scopes from the invitation
+4. User receives the scopes and role from the invitation
 
-### User & Tenant Management
+### Tenant Management: Platform Admin vs Self-Service
 
-- **Users** (`internal/iam/user/`): CRUD, scope management, status management, pagination
-- **Tenants** (`internal/iam/tenant/`): CRUD, subscription plans (Trial/Basic/Professional/Enterprise), status lifecycle, configuration key-value store, user count tracking
+Tenant routes are split into two groups with different authorization:
+
+**Platform admin routes** (`/api/v1/admin/tenants/...`) — cross-tenant operations for platform operators. Protected by `platform:tenants:*` scopes. These take `:id` from the URL to operate on any tenant:
+- Create, list all, get/update/delete any tenant
+- Suspend/activate any tenant
+- Upgrade any tenant's plan
+- View stats/usage/users/config for any tenant
+
+**Tenant self-service routes** (`/api/v1/tenants/me/...`) — tenant owners manage their own tenant. Protected by `tenants:read`/`tenants:config` scopes. These pull the tenant ID from the JWT (`authContext.TenantID`), so a tenant owner can only see their own data:
+- `GET /tenants/me` — own tenant info
+- `GET /tenants/me/stats`, `/usage` — own metrics
+- `GET/PUT/DELETE /tenants/me/config` — own configuration
+
+Both route groups share the same `TenantService` — the difference is authorization and how the tenant ID is resolved (URL param vs JWT).
+
+### User Management
+
+- **Users** (`internal/iam/user/`): CRUD, scope management, status management (activate/suspend)
+- All user operations are tenant-scoped via `authContext.TenantID` from the JWT
+
+## Naming Conventions
+
+### Method Naming by Layer
+
+The same three verbs are used across all layers (repo, service, handler). The verb alone tells you the return shape:
+
+| Verb | Intent | Returns |
+|------|--------|---------|
+| `Get*` | Single entity | `(*T, error)` |
+| `List*` | All items, no pagination | `([]*T, error)` |
+| `Find*` | Paginated/filtered search | `(Paginated[T], error)` |
+
+**Repository (port) layer:**
+```go
+GetByID(ctx, id kernel.UserID, tenantID kernel.TenantID) (*User, error)
+GetByEmail(ctx, email string, tenantID kernel.TenantID) (*User, error)
+ListByTenant(ctx, tenantID kernel.TenantID) ([]*User, error)
+FindByTenant(ctx, tenantID kernel.TenantID, page, size int) (kernel.Paginated[User], error)
+```
+
+**Service layer:**
+```go
+GetUserByID(ctx, userID kernel.UserID, tenantID kernel.TenantID) (*UserResponse, error)
+ListTenantUsers(ctx, tenantID kernel.TenantID) (*UserListResponse, error)
+FindTenantUsers(ctx, tenantID kernel.TenantID, page, size int) (*kernel.Paginated[UserResponse], error)
+```
+
+**Handler layer** — mirrors the service name:
+```go
+func (h *UserHandlers) GetUser(c *fiber.Ctx) error
+func (h *UserHandlers) ListTenantUsers(c *fiber.Ctx) error
+func (h *UserHandlers) FindTenantUsers(c *fiber.Ctx) error
+```
+
+### Entity ID Fields
+
+Entity struct ID fields use their typed wrapper with `db` and `json` tags preserved:
+```go
+type User struct {
+    ID       kernel.UserID    `db:"id" json:"id"`
+    TenantID kernel.TenantID  `db:"tenant_id" json:"tenant_id"`
+}
+```
 
 ## Utility Packages
 
@@ -220,8 +393,7 @@ internal/
 4. Create handlers in `*api/`
 5. Add a container (or wire directly in `cmd/container.go`)
 6. Register routes in `cmd/server.go` between the marker comments
-
-Add domain scopes in `internal/iam/scopes/proj_scopes.go`.
+7. Add domain scopes in `internal/iam/scopes/scopes.go`
 
 ## Route Registration
 
@@ -341,9 +513,15 @@ Users have a `scopes TEXT[]` column (Postgres array). Roles have their own `scop
 
 ## Key Conventions
 
-- **Typed IDs**: `kernel.UserID`, `kernel.TenantID` are typed strings, not raw strings
-- **Error registries**: Each module has its own `errx.Registry` with prefixed codes
-- **No circular deps**: Modules communicate through interfaces. Cross-module types are in `kernel/`
-- **Explicit over implicit**: No struct tags for DI, no auto-registration, no convention-based routing
-- **Infra is swappable**: All infrastructure is behind interfaces. Switch Postgres for DynamoDB by implementing the port
-- **Pagination**: Use `kernel.Paginated[T]` for all list endpoints
+- **Typed IDs**: `kernel.UserID`, `kernel.TenantID`, `kernel.RoleID`, `kernel.InvitationID`, `kernel.APIKeyID` are typed strings, not raw strings. Every entity ID must use its typed wrapper. Handlers convert URL params immediately via `kernel.NewXxxID(c.Params("id"))`.
+- **Explicit validation**: Request DTOs implement `Validate() error` — no struct tags. Used with `kernel.BindAndValidate[T](c)`.
+- **Scope constants**: Always use `iamscopes.ScopeXxx` constants, never hardcoded scope strings.
+- **Platform scope protection**: Scopes prefixed `platform:` are automatically restricted to platform operators and hidden from regular tenant admin UIs.
+- **Error registries**: Each module has its own `errx.Registry` with prefixed codes.
+- **No circular deps**: Modules communicate through interfaces. Cross-module types are in `kernel/`.
+- **Explicit over implicit**: No struct tags for DI, no auto-registration, no convention-based routing.
+- **Infra is swappable**: All infrastructure is behind interfaces. Switch Postgres for DynamoDB by implementing the port.
+- **Method naming**: Same vocabulary across all layers (repo, service, handler):
+  - `Get*` — single entity: `GetByID`, `GetByEmail`. Returns `(*T, error)`.
+  - `List*` — all items, no pagination: `ListByTenant`, `ListPending`. Returns `([]*T, error)`.
+  - `Find*` — paginated/filtered search: `FindByTenant(ctx, tenantID, page, size)`. Returns `(Paginated[T], error)`.

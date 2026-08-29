@@ -36,6 +36,7 @@ func (s *APIKeyService) CreateAPIKey(
 	tenantID kernel.TenantID,
 	creatorID kernel.UserID,
 	req apikey.CreateAPIKeyRequest,
+	callerScopes []string,
 ) (*apikey.CreateAPIKeyResponse, error) {
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -57,7 +58,7 @@ func (s *APIKeyService) CreateAPIKey(
 		}
 	}
 
-	if err := s.validateScopes(req.Scopes); err != nil {
+	if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
 		return nil, err
 	}
 
@@ -144,6 +145,7 @@ func (s *APIKeyService) UpdateAPIKey(
 	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 	req apikey.UpdateAPIKeyRequest,
+	callerScopes []string,
 ) (*apikey.APIKeyDTO, error) {
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
 	if err != nil {
@@ -157,7 +159,7 @@ func (s *APIKeyService) UpdateAPIKey(
 		key.Description = *req.Description
 	}
 	if req.Scopes != nil {
-		if err := s.validateScopes(req.Scopes); err != nil {
+		if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
 			return nil, err
 		}
 		key.Scopes = req.Scopes
@@ -202,9 +204,15 @@ func (s *APIKeyService) DeleteAPIKey(
 	return s.apiKeyRepo.Delete(ctx, keyID, tenantID)
 }
 
-func (s *APIKeyService) validateScopes(scopesList []string) error {
+func (s *APIKeyService) validateScopes(scopesList []string, callerScopes []string) error {
 	if len(scopesList) == 0 {
 		return errx.New("at least one scope is required", errx.TypeValidation)
+	}
+
+	// Reject platform scopes from non-platform callers
+	if scopes.ContainsPlatformScope(scopesList) && !scopes.CallerHasPlatformScope(callerScopes) {
+		return apikey.ErrAPIKeyInvalidScopes().
+			WithDetail("reason", "platform scopes can only be assigned by platform administrators")
 	}
 
 	var invalidScopes []string
