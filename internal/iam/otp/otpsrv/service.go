@@ -33,7 +33,10 @@ func NewOTPService(
 // GenerateOTP creates and sends an OTP
 func (s *OTPService) GenerateOTP(ctx context.Context, contact string, purpose otp.OTPPurpose) (*otp.OTP, error) {
 	// Rate limiting check
-	existing, _ := s.repo.GetLatestByContact(ctx, contact, purpose)
+	existing, err := s.repo.GetLatestByContact(ctx, contact, purpose)
+	if err != nil {
+		return nil, errx.Wrap(err, "failed to check rate limit", errx.TypeInternal)
+	}
 	if existing != nil && existing.IsValid() {
 		timeSinceCreation := time.Since(existing.CreatedAt)
 		if timeSinceCreation < s.config.RateLimitWindow {

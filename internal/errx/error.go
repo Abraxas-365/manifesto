@@ -40,6 +40,19 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
+// Is reports whether target matches this error. Two errx.Error values match
+// when they share the same Code, which lets errors.Is work even though each
+// ErrXxx() constructor returns a new pointer:
+//
+//	errors.Is(err, role.ErrRoleNotFound())  // matches by Code, not pointer
+func (e *Error) Is(target error) bool {
+	t, ok := target.(*Error)
+	if !ok {
+		return false
+	}
+	return e.Code == t.Code
+}
+
 // WithDetail adds a detail to the error and returns the error for chaining
 func (e *Error) WithDetail(key string, value interface{}) *Error {
 	if e.Details == nil {
@@ -114,6 +127,15 @@ func Wrapf(err error, errType Type, format string, args ...interface{}) *Error {
 // Is checks if an error matches the target error
 func Is(err, target error) bool {
 	return errors.Is(err, target)
+}
+
+// IsNotFound reports whether err is an errx.Error with TypeNotFound.
+func IsNotFound(err error) bool {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.Type == TypeNotFound
+	}
+	return false
 }
 
 // As finds the first error in err's chain that matches target

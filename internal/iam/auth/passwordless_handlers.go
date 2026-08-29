@@ -271,7 +271,10 @@ func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 	}
 
 	// 5. Check if user already exists in this tenant
-	existingUser, _ := h.userRepo.FindByEmail(c.Context(), req.Email, tenantID)
+	existingUser, err := h.userRepo.FindByEmail(c.Context(), req.Email, tenantID)
+	if err != nil && !errx.IsNotFound(err) {
+		return errx.Wrap(err, "failed to check user existence", errx.TypeInternal)
+	}
 
 	// 🔥 ACCOUNT LINKING: Handle existing user
 	if existingUser != nil {

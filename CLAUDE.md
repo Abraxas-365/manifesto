@@ -160,6 +160,54 @@ return errx.Wrap(err, "context message", errx.TypeInternal) // wraps preserving 
 
 Error types: `TypeValidation` (400), `TypeAuthorization` (401), `TypeNotFound` (404), `TypeConflict` (409), `TypeBusiness` (422), `TypeExternal` (502), `TypeInternal` (500).
 
+### Error Comparison with `errors.Is`
+
+`errx.Error` implements the `Is(target error) bool` method, matching by error **code** rather than pointer identity. This means `errors.Is` works correctly even though each `ErrXxx()` constructor returns a new pointer:
+
+```go
+errors.Is(err, role.ErrRoleNotFound())  // true if err has the same code
+```
+
+Additionally, `errx.IsNotFound(err)` checks whether any error in the chain is an `errx.Error` with `TypeNotFound` — useful for generic "not found" handling without importing a specific module's error.
+
+### Repository "Not Found" Pattern
+
+Go has no `Option<T>` type, so unlike Rust's `fetch_optional` which returns `None`, Go's `database/sql` signals "no rows" with `sql.ErrNoRows`. The idiomatic Go approach — used by Kubernetes, GORM, and the Go stdlib — is to **translate `sql.ErrNoRows` into a domain error at the repository boundary**:
+
+```go
+// Repository layer — translates sql.ErrNoRows into a domain error
+func (r *PostgresRoleRepository) GetByID(ctx context.Context, id kernel.RoleID) (*role.Role, error) {
+    var p rolePersistence
+    err := r.db.GetContext(ctx, &p, query, id.String())
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return nil, role.ErrRoleNotFound()  // domain error, not sql error
+        }
+        return nil, errx.Wrap(err, "failed to find role", errx.TypeInternal)
+    }
+    d := toDomain(p)
+    return &d, nil
+}
+```
+
+**Never swallow errors with `_`** when calling a repo method. When "not found" is an expected outcome (e.g., checking for duplicates before creation), use `errors.Is` to distinguish it from real database errors:
+
+```go
+// Service layer — "not found" is expected, real DB errors are not
+existing, err := s.roleRepo.GetByName(ctx, req.Name, tenantID)
+if err != nil && !errors.Is(err, role.ErrRoleNotFound()) {
+    return nil, errx.Wrap(err, "failed to check role name", errx.TypeInternal)
+}
+if existing != nil {
+    return nil, role.ErrRoleAlreadyExists()
+}
+```
+
+Why not `nil, nil` (like Rust's `Option`)?
+- Go has no compiler-enforced `Option<T>` — a caller who forgets to check `nil` gets a runtime panic, not a compile error
+- `nil, nil` is ambiguous: does it mean "not found" or "success with no data"?
+- Returning a typed domain error makes the "not found" case explicit and grep-able
+
 ## IAM Module
 
 The IAM module is the largest module and provides complete multi-tenant auth:

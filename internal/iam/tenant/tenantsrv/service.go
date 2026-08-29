@@ -97,8 +97,8 @@ func (s *TenantService) GetAllTenants(ctx context.Context) (*tenant.TenantListRe
 
 	var responses []tenant.TenantResponse
 	for _, t := range tenants {
-		config, _ := s.tenantConfigRepo.FindByTenant(ctx, t.ID)
-		if config == nil {
+		config, err := s.tenantConfigRepo.FindByTenant(ctx, t.ID)
+		if err != nil {
 			config = make(map[string]string)
 		}
 		responses = append(responses, tenant.TenantResponse{
@@ -122,8 +122,8 @@ func (s *TenantService) GetActiveTenants(ctx context.Context) (*tenant.TenantLis
 
 	var responses []tenant.TenantResponse
 	for _, t := range tenants {
-		config, _ := s.tenantConfigRepo.FindByTenant(ctx, t.ID)
-		if config == nil {
+		config, err := s.tenantConfigRepo.FindByTenant(ctx, t.ID)
+		if err != nil {
 			config = make(map[string]string)
 		}
 		responses = append(responses, tenant.TenantResponse{

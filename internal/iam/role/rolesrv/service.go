@@ -2,6 +2,7 @@ package rolesrv
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
@@ -46,7 +47,10 @@ func (s *RoleService) CreateRole(
 	}
 
 	// Check for duplicate name
-	existing, _ := s.roleRepo.FindByName(ctx, req.Name, tenantID)
+	existing, err := s.roleRepo.FindByName(ctx, req.Name, tenantID)
+	if err != nil && !errors.Is(err, role.ErrRoleNotFound()) {
+		return nil, errx.Wrap(err, "failed to check role name", errx.TypeInternal)
+	}
 	if existing != nil {
 		return nil, role.ErrRoleAlreadyExists().WithDetail("name", req.Name)
 	}
@@ -119,7 +123,10 @@ func (s *RoleService) UpdateRole(
 
 	if req.Name != nil {
 		// Check for duplicate name (exclude current role)
-		existing, _ := s.roleRepo.FindByName(ctx, *req.Name, tenantID)
+		existing, err := s.roleRepo.FindByName(ctx, *req.Name, tenantID)
+		if err != nil && !errors.Is(err, role.ErrRoleNotFound()) {
+			return nil, errx.Wrap(err, "failed to check role name", errx.TypeInternal)
+		}
 		if existing != nil && existing.ID != r.ID {
 			return nil, role.ErrRoleAlreadyExists().WithDetail("name", *req.Name)
 		}
