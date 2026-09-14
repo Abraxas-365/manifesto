@@ -108,16 +108,16 @@ func (r *RefreshTokenRequest) Validate() error {
 }
 
 // RegisterRoutes registers the auth routes on Fiber
-func (ah *AuthHandlers) RegisterRoutes(router fiber.Router) {
+func (ah *AuthHandlers) RegisterRoutes(router fiber.Router, middleware *UnifiedAuthMiddleware) {
 	auth := router.Group("/auth")
 
 	auth.Post("/login", ah.InitiateLogin)
 	auth.Get("/callback/:provider", ah.HandleCallback)
 	auth.Post("/refresh", ah.RefreshToken)
-	auth.Post("/logout", ah.Logout)
-	auth.Post("/logout/all", ah.LogoutAll)
-	auth.Get("/me", ah.GetCurrentUser)
-	auth.Get("/sessions", ah.ListSessions)
+	auth.Post("/logout", middleware.AuthenticateUserJWT(), ah.Logout)
+	auth.Post("/logout/all", middleware.AuthenticateUserJWT(), ah.LogoutAll)
+	auth.Get("/me", middleware.AuthenticateUserJWT(), ah.GetCurrentUser)
+	auth.Get("/sessions", middleware.AuthenticateUserJWT(), ah.ListSessions)
 }
 
 // InitiateLogin starts the OAuth login process
@@ -420,7 +420,7 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 // Logout invalidates the current session and its tokens (single-device logout)
 func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.UserID == nil {
+	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
@@ -446,7 +446,7 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 // LogoutAll invalidates all user sessions and tokens across all devices
 func (ah *AuthHandlers) LogoutAll(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.UserID == nil {
+	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
@@ -472,7 +472,7 @@ func (ah *AuthHandlers) LogoutAll(c *fiber.Ctx) error {
 // ListSessions returns all active sessions for the current user
 func (ah *AuthHandlers) ListSessions(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.UserID == nil {
+	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
@@ -540,7 +540,7 @@ func (ah *AuthHandlers) clearAuthCookies(c *fiber.Ctx) {
 // GetCurrentUser retrieves the authenticated user's information
 func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.UserID == nil {
+	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
