@@ -12,6 +12,7 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*User, error)
 	FindByTenant(ctx context.Context, tenantID kernel.TenantID) ([]*User, error)
 	Save(ctx context.Context, u User) error
+	// Delete removes membership and decrements tenant capacity atomically.
 	Delete(ctx context.Context, id kernel.UserID, tenantID kernel.TenantID) error
 	ExistsByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (bool, error)
 	FindByEmailAcrossTenants(ctx context.Context, email string) ([]*User, error)

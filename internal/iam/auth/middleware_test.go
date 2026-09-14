@@ -8,6 +8,8 @@ import (
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
+	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
+	"github.com/Abraxas-365/manifesto/internal/iam/user"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -61,15 +63,19 @@ func TestUserJWTMiddleware(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			middleware := auth.NewAPIKeyMiddleware(nil, svc, repo, "session_jwt")
+			middleware := auth.NewAPIKeyMiddleware(nil, svc, repo, "session_jwt", eligibleUserRepo{}, eligibleTenantRepo{})
 			app := middlewareTestApp()
 			app.Use(func(c *fiber.Ctx) error {
-				c.Locals("auth", &kernel.AuthContext{TenantID: "tenant", IsAPIKey: true, Scopes: []string{"*"}})
+				c.Locals("auth", &kernel.AuthContext{TenantID: "tenant", Actor: kernel.NewAPIKeyActor(kernel.NewAPIKeyID("key")), Scopes: []string{"*"}})
 				return c.Next()
 			})
 			app.Get("/session", middleware.AuthenticateUserJWT(), func(c *fiber.Ctx) error {
 				actor, ok := auth.GetAuthContext(c)
-				if !ok || actor.IsAPIKey || len(actor.Scopes) != 0 || actor.UserID == nil || *actor.UserID != "user" {
+				if !ok {
+					t.Fatal("missing session identity")
+				}
+				userID, isUser := actor.Actor.UserID()
+				if !isUser || len(actor.Scopes) != 0 || userID != "user" {
 					t.Error("incorrect session identity")
 				}
 				if tc.header != "Bearer "+legacy && actor.SessionID != "active" {
@@ -95,7 +101,7 @@ func TestUserJWTMiddleware(t *testing.T) {
 	}
 	// The public application middleware retains JWT scopes and uses the same cookie.
 	app := middlewareTestApp()
-	middleware := auth.NewAPIKeyMiddleware(nil, svc, newMockSessionRepo(), "session_jwt")
+	middleware := auth.NewAPIKeyMiddleware(nil, svc, newMockSessionRepo(), "session_jwt", eligibleUserRepo{}, eligibleTenantRepo{})
 	app.Get("/resource", middleware.Authenticate(), middleware.RequireScope("users:read"), func(c *fiber.Ctx) error { return c.SendStatus(204) })
 	req := httptest.NewRequest("GET", "/resource", nil)
 	req.Header.Set("Cookie", "session_jwt="+legacy)
@@ -114,11 +120,11 @@ func TestSessionRoutesRequireFreshJWT(t *testing.T) {
 	// Preexisting locals must not allow bypassing explicit route authentication.
 	userID := kernel.NewUserID("user")
 	app.Use(func(c *fiber.Ctx) error {
-		c.Locals("auth", &kernel.AuthContext{UserID: &userID, TenantID: "tenant"})
+		c.Locals("auth", &kernel.AuthContext{Actor: kernel.NewUserActor(userID), TenantID: "tenant"})
 		return c.Next()
 	})
 	handlers := &auth.AuthHandlers{}
-	handlers.RegisterRoutes(app.Group("/api/v1"), auth.NewAPIKeyMiddleware(nil, newTestJWTService(), newMockSessionRepo(), "session_jwt"))
+	handlers.RegisterRoutes(app.Group("/api/v1"), auth.NewAPIKeyMiddleware(nil, newTestJWTService(), newMockSessionRepo(), "session_jwt", eligibleUserRepo{}, eligibleTenantRepo{}))
 	for _, tc := range []struct{ method, path string }{{"GET", "/me"}, {"GET", "/sessions"}, {"POST", "/logout"}, {"POST", "/logout/all"}} {
 		resp, err := app.Test(httptest.NewRequest(tc.method, "/api/v1/auth"+tc.path, nil))
 		if err != nil {
@@ -129,4 +135,17 @@ func TestSessionRoutesRequireFreshJWT(t *testing.T) {
 			t.Errorf("%s status=%d", tc.path, resp.StatusCode)
 		}
 	}
+}
+
+// Existing middleware fixtures model an active, verified tenant membership.
+type eligibleUserRepo struct{ user.UserRepository }
+
+func (eligibleUserRepo) FindByID(_ context.Context, id kernel.UserID, tenantID kernel.TenantID) (*user.User, error) {
+	return &user.User{ID: id, TenantID: tenantID, Status: user.UserStatusActive, EmailVerified: true}, nil
+}
+
+type eligibleTenantRepo struct{ tenant.TenantRepository }
+
+func (eligibleTenantRepo) FindByID(_ context.Context, id kernel.TenantID) (*tenant.Tenant, error) {
+	return &tenant.Tenant{ID: id, Status: tenant.TenantStatusActive}, nil
 }

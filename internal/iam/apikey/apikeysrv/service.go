@@ -38,6 +38,10 @@ func (s *APIKeyService) CreateAPIKey(
 	req apikey.CreateAPIKeyRequest,
 	callerScopes []string,
 ) (*apikey.CreateAPIKeyResponse, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -147,6 +151,9 @@ func (s *APIKeyService) UpdateAPIKey(
 	req apikey.UpdateAPIKeyRequest,
 	callerScopes []string,
 ) (*apikey.APIKeyDTO, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
 	if err != nil {
 		return nil, apikey.ErrAPIKeyNotFound()
@@ -163,9 +170,6 @@ func (s *APIKeyService) UpdateAPIKey(
 			return nil, err
 		}
 		key.Scopes = req.Scopes
-	}
-	if req.IsActive != nil {
-		key.IsActive = *req.IsActive
 	}
 
 	key.UpdatedAt = time.Now().UTC()
@@ -209,10 +213,10 @@ func (s *APIKeyService) validateScopes(scopesList []string, callerScopes []strin
 		return errx.New("at least one scope is required", errx.TypeValidation)
 	}
 
-	// Reject platform scopes from non-platform callers
-	if scopes.ContainsPlatformScope(scopesList) && !scopes.CallerHasPlatformScope(callerScopes) {
+	// Platform permissions are never assignable through tenant IAM.
+	if scopes.ContainsPlatformScope(scopesList) {
 		return apikey.ErrAPIKeyInvalidScopes().
-			WithDetail("reason", "platform scopes can only be assigned by platform administrators")
+			WithDetail("reason", "platform scopes are not available in tenant IAM")
 	}
 
 	var invalidScopes []string
@@ -228,6 +232,11 @@ func (s *APIKeyService) validateScopes(scopesList []string, callerScopes []strin
 			WithDetail("hint", "Use scopes.GetAllScopes() to see valid options")
 	}
 
+	for _, scope := range scopesList {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return apikey.ErrAPIKeyInsufficientScope().WithDetail("scope", scope)
+		}
+	}
 	return nil
 }
 
@@ -250,6 +259,14 @@ func (s *APIKeyService) ValidateAPIKey(
 			return nil, apikey.ErrAPIKeyExpired()
 		}
 		return nil, apikey.ErrAPIKeyRevoked()
+	}
+
+	t, err := s.tenantRepo.FindByID(ctx, key.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if !t.IsActive() {
+		return nil, tenant.ErrTenantSuspended()
 	}
 
 	go s.apiKeyRepo.UpdateLastUsed(context.Background(), key.ID)

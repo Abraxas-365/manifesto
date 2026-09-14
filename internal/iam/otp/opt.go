@@ -12,6 +12,8 @@ type OTPPurpose string
 const (
 	OTPPurposeJobApplication OTPPurpose = "JOB_APPLICATION"
 	OTPPurposeVerification   OTPPurpose = "VERIFICATION"
+	OTPPurposeSignup         OTPPurpose = "SIGNUP"
+	OTPPurposeLogin          OTPPurpose = "LOGIN"
 )
 
 type OTP struct {

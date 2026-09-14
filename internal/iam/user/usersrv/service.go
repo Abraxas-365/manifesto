@@ -34,6 +34,10 @@ func NewUserService(
 
 // CreateUser creates a new user
 func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest) (*user.User, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	// Validate that the tenant exists and is active
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, req.TenantID)
 	if err != nil {
@@ -143,6 +147,9 @@ func (s *UserService) GetUsersByTenant(ctx context.Context, tenantID kernel.Tena
 
 // UpdateUser updates a user
 func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req user.UpdateUserRequest) (*user.User, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	userEntity, err := s.userRepo.FindByID(ctx, userID, req.TenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
@@ -153,23 +160,12 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 		userEntity.Name = *req.Name
 	}
 
-	if req.Status != nil {
-		switch *req.Status {
-		case user.UserStatusActive:
-			if err := userEntity.Activate(); err != nil {
-				return nil, err
-			}
-		case user.UserStatusSuspended:
-			if err := userEntity.Suspend("Updated by admin"); err != nil {
-				return nil, err
-			}
-		}
-	}
-
 	// Update scopes if provided
-	if req.Scopes != nil && len(req.Scopes) > 0 {
-		if err := s.validateScopes(req.Scopes, nil); err != nil {
-			return nil, err
+	if req.Scopes != nil {
+		if len(req.Scopes) > 0 {
+			if err := s.validateScopes(req.Scopes, nil); err != nil {
+				return nil, err
+			}
 		}
 		userEntity.SetScopes(req.Scopes)
 	}
@@ -184,18 +180,18 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 	return userEntity, nil
 }
 
-// ActivateUser activates a pending user
-func (s *UserService) ActivateUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
-	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
+// ReinstateUser restores a suspended, verified member, never a pending signup.
+func (s *UserService) ReinstateUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
+	u, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
-		return user.ErrUserNotFound()
-	}
-
-	if err := userEntity.Activate(); err != nil {
 		return err
 	}
-
-	return s.userRepo.Save(ctx, *userEntity)
+	if u.Status != user.UserStatusSuspended || !u.EmailVerified {
+		return user.ErrInvalidStatus()
+	}
+	u.Status = user.UserStatusActive
+	u.UpdatedAt = time.Now().UTC()
+	return s.userRepo.Save(ctx, *u)
 }
 
 // SuspendUser suspends a user
@@ -225,14 +221,6 @@ func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tena
 		return errx.Wrap(err, "failed to delete user", errx.TypeInternal)
 	}
 
-	// Decrement tenant user counter (best-effort — not transactional with user delete)
-	if tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID); err == nil {
-		tenantEntity.RemoveUser()
-		if err := s.tenantRepo.Save(ctx, *tenantEntity); err != nil {
-			_ = err // user deleted successfully, counter drift is non-fatal
-		}
-	}
-
 	return nil
 }
 
@@ -241,9 +229,13 @@ func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tena
 // ============================================================================
 
 // AddScopesToUser adds scopes to a user.
-// callerScopes are the effective scopes of the authenticated caller, used to
-// enforce that only platform operators can assign platform-reserved scopes.
+// callerScopes is retained for API compatibility; it cannot grant platform authority.
 func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string, callerScopes []string) error {
+	req := user.ChangeUserScopesRequest{Scopes: newScopes}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
@@ -266,7 +258,9 @@ func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID,
 
 // RemoveScopesFromUser removes scopes from a user
 func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopeList []string) error {
-	if err := s.validateScopes(scopeList, nil); err != nil {
+	// Revocation must also allow cleaning up legacy or retired scopes.
+	req := user.ChangeUserScopesRequest{Scopes: scopeList}
+	if err := req.Validate(); err != nil {
 		return err
 	}
 
@@ -283,17 +277,23 @@ func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.Us
 }
 
 // SetUserScopes sets the scopes for a user (replaces existing ones).
-// callerScopes are the effective scopes of the authenticated caller, used to
-// enforce that only platform operators can assign platform-reserved scopes.
+// callerScopes is retained for API compatibility; it cannot grant platform authority.
 func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string, callerScopes []string) error {
+	req := user.SetUserScopesRequest{Scopes: newScopes}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
 	}
 
-	// Validate scopes
-	if err := s.validateScopes(newScopes, callerScopes); err != nil {
-		return err
+	// An explicit empty array revokes all direct scopes, not role-derived scopes.
+	if len(newScopes) > 0 {
+		if err := s.validateScopes(newScopes, callerScopes); err != nil {
+			return err
+		}
 	}
 
 	userEntity.SetScopes(newScopes)
@@ -322,7 +322,6 @@ func (s *UserService) GetUserScopes(ctx context.Context, userID kernel.UserID, t
 		Scopes:       userEntity.Scopes,
 		ScopeDetails: scopeDetails,
 		TotalScopes:  len(userEntity.Scopes),
-
 	}, nil
 }
 
@@ -338,18 +337,16 @@ func (s *UserService) resolveScopes(req user.CreateUserRequest) ([]string, error
 	return []string{}, nil
 }
 
-// validateScopes validates that the scopes are valid and that the caller is
-// authorized to assign them. Platform scopes (platform:*) require the caller
-// to hold a platform scope themselves.
+// validateScopes accepts only tenant application scopes, regardless of caller authority.
 func (s *UserService) validateScopes(scopesl []string, callerScopes []string) error {
 	if len(scopesl) == 0 {
 		return user.ErrInvalidScopes().WithDetail("reason", "at least one scope is required")
 	}
 
-	// Reject platform scopes from non-platform callers
-	if scopes.ContainsPlatformScope(scopesl) && !scopes.CallerHasPlatformScope(callerScopes) {
+	// Platform permissions are never assignable through tenant IAM.
+	if scopes.ContainsPlatformScope(scopesl) {
 		return user.ErrInvalidScopes().
-			WithDetail("reason", "platform scopes can only be assigned by platform administrators")
+			WithDetail("reason", "platform scopes are not available in tenant IAM")
 	}
 
 	// Validate each scope

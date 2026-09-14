@@ -150,7 +150,7 @@ func (m *MicrosoftOAuthService) GetUserInfo(ctx context.Context, accessToken str
 		ID:            msUser.ID,
 		Email:         email,
 		Name:          msUser.DisplayName,
-		Picture:       "",   // Microsoft Graph requires a separate endpoint for photos
-		EmailVerified: true, // Assumed verified if coming from Microsoft
+		Picture:       "",    // Microsoft Graph requires a separate endpoint for photos
+		EmailVerified: false, // Graph mail/UPN does not prove mailbox ownership.
 	}, nil
 }

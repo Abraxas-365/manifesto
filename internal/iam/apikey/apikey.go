@@ -172,6 +172,9 @@ type UpdateAPIKeyRequest struct {
 }
 
 func (r *UpdateAPIKeyRequest) Validate() error {
+	if r.IsActive != nil {
+		return errx.Validation("Use revoke; revoked keys cannot be reactivated").WithDetail("field", "is_active")
+	}
 	if r.Name != nil && utf8.RuneCountInString(strings.TrimSpace(*r.Name)) < 3 {
 		return errx.Validation("Name must be at least 3 characters").WithDetail("field", "name")
 	}

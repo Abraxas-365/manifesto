@@ -37,6 +37,10 @@ func NewTenantService(
 
 // CreateTenant creates a new tenant
 func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenantRequest) (*tenant.Tenant, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	// Create new tenant
 	newTenant := &tenant.Tenant{
 		ID:                    kernel.NewTenantID(uuid.NewString()),
@@ -140,6 +144,10 @@ func (s *TenantService) GetActiveTenants(ctx context.Context) (*tenant.TenantLis
 
 // UpdateTenant updates a tenant
 func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.TenantID, req tenant.UpdateTenantRequest) (*tenant.Tenant, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -170,6 +178,11 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID kernel.Tenant
 
 // SuspendTenant suspends a tenant
 func (s *TenantService) SuspendTenant(ctx context.Context, tenantID kernel.TenantID, reason string) error {
+	req := tenant.SuspendTenantRequest{Reason: reason}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return tenant.ErrTenantNotFound()
@@ -192,6 +205,11 @@ func (s *TenantService) ActivateTenant(ctx context.Context, tenantID kernel.Tena
 
 // UpgradeTenantPlan upgrades the subscription plan of a tenant
 func (s *TenantService) UpgradeTenantPlan(ctx context.Context, tenantID kernel.TenantID, newPlan tenant.SubscriptionPlan) error {
+	req := tenant.UpgradePlanRequest{NewPlan: newPlan}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return tenant.ErrTenantNotFound()
@@ -228,6 +246,11 @@ func (s *TenantService) GetTenantUsers(ctx context.Context, tenantID kernel.Tena
 
 // SetTenantConfig sets a tenant configuration
 func (s *TenantService) SetTenantConfig(ctx context.Context, tenantID kernel.TenantID, key, value string) error {
+	req := tenant.SetConfigRequest{Key: key, Value: value}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
 	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -258,6 +281,11 @@ func (s *TenantService) GetTenantConfig(ctx context.Context, tenantID kernel.Ten
 
 // DeleteTenantConfig deletes a tenant configuration
 func (s *TenantService) DeleteTenantConfig(ctx context.Context, tenantID kernel.TenantID, key string) error {
+	req := tenant.DeleteConfigRequest{Key: key}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
 	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -357,6 +385,11 @@ func (s *TenantService) DeleteTenant(ctx context.Context, tenantID kernel.Tenant
 
 // BulkSuspendTenants suspends multiple tenants
 func (s *TenantService) BulkSuspendTenants(ctx context.Context, tenantIDs []kernel.TenantID, reason string) (*tenant.BulkTenantOperationResponse, error) {
+	req := tenant.BulkTenantOperationRequest{TenantIDs: tenantIDs, Operation: "suspend", Reason: reason}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	result := &tenant.BulkTenantOperationResponse{
 		Successful: []kernel.TenantID{},
 		Failed:     make(map[kernel.TenantID]string),
@@ -376,6 +409,11 @@ func (s *TenantService) BulkSuspendTenants(ctx context.Context, tenantIDs []kern
 
 // BulkActivateTenants activates multiple tenants
 func (s *TenantService) BulkActivateTenants(ctx context.Context, tenantIDs []kernel.TenantID) (*tenant.BulkTenantOperationResponse, error) {
+	req := tenant.BulkTenantOperationRequest{TenantIDs: tenantIDs, Operation: "activate"}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	result := &tenant.BulkTenantOperationResponse{
 		Successful: []kernel.TenantID{},
 		Failed:     make(map[kernel.TenantID]string),

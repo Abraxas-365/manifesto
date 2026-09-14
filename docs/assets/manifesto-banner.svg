@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">Manifesto — Build your domain. Own your code.</title>
+  <desc id="desc">Coral Manifesto wordmark on a dark navy background with a connected architectural diagram. An opinionated Go foundation for multi-tenant applications.</desc>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#243044" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff806e"/>
+      <stop offset="1" stop-color="#f55267"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="380" rx="20" fill="#101722"/>
+  <rect width="1200" height="380" rx="20" fill="url(#grid)" opacity="0.45"/>
+  <rect x="56" y="58" width="38" height="5" rx="2.5" fill="url(#accent)"/>
+  <text x="108" y="66" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="3" fill="#b5c4d8">A FOUNDATION, NOT A BLACK BOX</text>
+  <text x="52" y="175" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="800" letter-spacing="-4" fill="url(#accent)">manifesto.</text>
+  <text x="56" y="229" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="600" fill="#f2f5fa">Build your domain. Own your code.</text>
+  <text x="56" y="270" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#a8b8ce">An opinionated Go foundation for multi-tenant applications.</text>
+  <text x="56" y="332" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" letter-spacing="2" fill="#90a2bb">EXPLICIT BOUNDARIES / REAL WORKFLOWS / PLAIN GO</text>
+  <g stroke="#55657c" stroke-width="2" fill="none">
+    <path d="M 901 101 L 901 159"/>
+    <path d="M 901 215 L 901 275"/>
+    <path d="M 795 188 L 743 188 L 743 304 L 817 304"/>
+    <path d="M 1007 188 L 1065 188 L 1065 304 L 985 304"/>
+  </g>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle">
+    <rect x="817" y="48" width="168" height="54" rx="10" fill="#172231" stroke="#3b4c64"/>
+    <text x="901" y="80" font-size="14" fill="#c5d1e2">APPLICATION</text>
+    <rect x="795" y="159" width="212" height="58" rx="10" fill="#302331" stroke="#ff806e" stroke-width="2"/>
+    <text x="901" y="194" font-size="16" font-weight="700" fill="#ff9687">DOMAIN + PORTS</text>
+    <rect x="817" y="275" width="168" height="54" rx="10" fill="#172231" stroke="#3b4c64"/>
+    <text x="901" y="307" font-size="14" fill="#c5d1e2">ADAPTERS</text>
+  </g>
+  <circle cx="901" cy="142" r="4" fill="#ff806e"/>
+  <circle cx="901" cy="238" r="4" fill="#ff806e"/>
+</svg>

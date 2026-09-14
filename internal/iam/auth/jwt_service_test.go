@@ -129,12 +129,11 @@ func TestJWTService_RefreshToken(t *testing.T) {
 func TestAuthContext_SessionID(t *testing.T) {
 	userID := kernel.NewUserID("user-1")
 	ctx := &kernel.AuthContext{
-		UserID:    &userID,
+		Actor:     kernel.NewUserActor(userID),
 		TenantID:  kernel.NewTenantID("tenant-1"),
 		SessionID: "session-abc",
 		Email:     "test@example.com",
 		Scopes:    []string{"users:read"},
-		IsAPIKey:  false,
 	}
 
 	if !ctx.IsValid() {
@@ -150,7 +149,7 @@ func TestAuthContext_APIKeyNoSessionID(t *testing.T) {
 	ctx := &kernel.AuthContext{
 		TenantID: kernel.NewTenantID("tenant-1"),
 		Scopes:   []string{"users:read"},
-		IsAPIKey: true,
+		Actor:    kernel.NewAPIKeyActor(kernel.NewAPIKeyID("key-1")),
 	}
 
 	if !ctx.IsValid() {

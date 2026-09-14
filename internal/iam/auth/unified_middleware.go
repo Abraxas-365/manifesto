@@ -6,6 +6,8 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeysrv"
+	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
+	"github.com/Abraxas-365/manifesto/internal/iam/user"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/gofiber/fiber/v2"
 )
@@ -14,6 +16,8 @@ type UnifiedAuthMiddleware struct {
 	apiKeyService         *apikeysrv.APIKeyService
 	tokenService          TokenService
 	sessionRepo           SessionRepository
+	userRepo              user.UserRepository
+	tenantRepo            tenant.TenantRepository
 	accessTokenCookieName string
 }
 
@@ -22,11 +26,14 @@ func NewAPIKeyMiddleware(
 	tokenService TokenService,
 	sessionRepo SessionRepository,
 	accessTokenCookieName string,
+	userRepo user.UserRepository,
+	tenantRepo tenant.TenantRepository,
 ) *UnifiedAuthMiddleware {
 	return &UnifiedAuthMiddleware{
-		apiKeyService:         apiKeyService,
-		tokenService:          tokenService,
-		sessionRepo:           sessionRepo,
+		apiKeyService: apiKeyService,
+		tokenService:  tokenService,
+		sessionRepo:   sessionRepo,
+		userRepo:      userRepo, tenantRepo: tenantRepo,
 		accessTokenCookieName: accessTokenCookieName,
 	}
 }
@@ -51,10 +58,12 @@ func (am *UnifiedAuthMiddleware) authenticateAPIKey(c *fiber.Ctx, keyString stri
 	}
 
 	authContext := &kernel.AuthContext{
-		UserID:   key.UserID,
+		Actor:    kernel.NewAPIKeyActor(key.ID),
 		TenantID: key.TenantID,
 		Scopes:   key.Scopes,
-		IsAPIKey: true,
+	}
+	if !authContext.IsValid() {
+		return iam.ErrUnauthorized()
 	}
 
 	c.Locals("auth", authContext)
@@ -73,7 +82,7 @@ func (am *UnifiedAuthMiddleware) AuthenticateUserJWT() fiber.Handler {
 			return err
 		}
 		c.Locals("auth", &kernel.AuthContext{
-			UserID: actor.UserID, TenantID: actor.TenantID, SessionID: actor.SessionID,
+			Actor: actor.Actor, TenantID: actor.TenantID, SessionID: actor.SessionID,
 		})
 		return c.Next()
 	}
@@ -107,10 +116,20 @@ func (am *UnifiedAuthMiddleware) readJWTIdentity(c *fiber.Ctx) (*kernel.AuthCont
 		return nil, iam.ErrUnauthorized()
 	}
 	actor := &kernel.AuthContext{
-		UserID: &claims.UserID, TenantID: claims.TenantID, SessionID: claims.SessionID,
+		Actor: kernel.NewUserActor(claims.UserID), TenantID: claims.TenantID, SessionID: claims.SessionID,
 		Email: claims.Email, Name: claims.Name, Scopes: claims.Scopes,
 	}
 	if !actor.IsValid() {
+		return nil, iam.ErrUnauthorized()
+	}
+	// Check current eligibility even for sessionless tokens. Suspension must
+	// not leave an old JWT able to reinstate its own user.
+	u, err := am.userRepo.FindByID(c.Context(), claims.UserID, claims.TenantID)
+	if err != nil || u == nil || !u.CanLogin() || claims.CredentialVersion != u.CredentialVersion {
+		return nil, iam.ErrUnauthorized()
+	}
+	t, err := am.tenantRepo.FindByID(c.Context(), claims.TenantID)
+	if err != nil || t == nil || !t.IsActive() {
 		return nil, iam.ErrUnauthorized()
 	}
 	// Preserve support for tokens without session IDs. Session-bound tokens must

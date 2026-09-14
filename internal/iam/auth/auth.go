@@ -14,14 +14,15 @@ import (
 
 // RefreshToken represents a refresh token
 type RefreshToken struct {
-	ID        string          `db:"id" json:"id"`
-	Token     string          `db:"token" json:"token"`
-	UserID    kernel.UserID   `db:"user_id" json:"user_id"`
-	TenantID  kernel.TenantID `db:"tenant_id" json:"tenant_id"`
-	SessionID string          `db:"session_id" json:"session_id"`
-	ExpiresAt time.Time       `db:"expires_at" json:"expires_at"`
-	CreatedAt time.Time       `db:"created_at" json:"created_at"`
-	IsRevoked bool            `db:"is_revoked" json:"is_revoked"`
+	CredentialVersion int64           `db:"credential_version" json:"credential_version"`
+	ID                string          `db:"id" json:"id"`
+	Token             string          `db:"token" json:"token"`
+	UserID            kernel.UserID   `db:"user_id" json:"user_id"`
+	TenantID          kernel.TenantID `db:"tenant_id" json:"tenant_id"`
+	SessionID         string          `db:"session_id" json:"session_id"`
+	ExpiresAt         time.Time       `db:"expires_at" json:"expires_at"`
+	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
+	IsRevoked         bool            `db:"is_revoked" json:"is_revoked"`
 }
 
 // UserSession represents a user session (one per device/browser).
@@ -48,14 +49,15 @@ type PasswordResetToken struct {
 
 // TokenClaims represents JWT claims
 type TokenClaims struct {
-	UserID    kernel.UserID   `json:"user_id"`
-	TenantID  kernel.TenantID `json:"tenant_id"`
-	SessionID string          `json:"session_id"`
-	Email     string          `json:"email"`
-	Name      string          `json:"name"`
-	Scopes    []string        `json:"scopes"`
-	IssuedAt  time.Time       `json:"iat"`
-	ExpiresAt time.Time       `json:"exp"`
+	CredentialVersion int64           `json:"credential_version"`
+	UserID            kernel.UserID   `json:"user_id"`
+	TenantID          kernel.TenantID `json:"tenant_id"`
+	SessionID         string          `json:"session_id"`
+	Email             string          `json:"email"`
+	Name              string          `json:"name"`
+	Scopes            []string        `json:"scopes"`
+	IssuedAt          time.Time       `json:"iat"`
+	ExpiresAt         time.Time       `json:"exp"`
 }
 
 // ============================================================================

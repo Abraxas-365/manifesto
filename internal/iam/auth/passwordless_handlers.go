@@ -34,6 +34,7 @@ type PasswordlessAuthHandlers struct {
 	otpService     *otpsrv.OTPService
 	auditService   AuditService
 	scopeResolver  ScopeResolver
+	onboarding     InvitationAcceptor
 	config         *config.Config
 }
 
@@ -48,6 +49,7 @@ func NewPasswordlessAuthHandlers(
 	otpService *otpsrv.OTPService,
 	auditService AuditService,
 	scopeResolver ScopeResolver,
+	onboarding InvitationAcceptor,
 	config *config.Config,
 ) *PasswordlessAuthHandlers {
 	return &PasswordlessAuthHandlers{
@@ -61,26 +63,13 @@ func NewPasswordlessAuthHandlers(
 		otpService:     otpService,
 		auditService:   auditService,
 		scopeResolver:  scopeResolver,
+		onboarding:     onboarding,
 		config:         config,
 	}
 }
 
 func (h *PasswordlessAuthHandlers) resolveScopes(ctx context.Context, userEntity *user.User) []string {
 	return ResolveScopes(ctx, h.scopeResolver, userEntity.ID, userEntity.TenantID, userEntity.Scopes)
-}
-
-// assignInvitationRole assigns the invitation's role to the user if present
-func (h *PasswordlessAuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *kernel.RoleID) {
-	if roleID == nil || roleID.IsEmpty() {
-		return
-	}
-	userRole := role.UserRole{
-		UserID:     userID,
-		RoleID:     *roleID,
-		TenantID:   tenantID,
-		AssignedAt: time.Now().UTC(),
-	}
-	h.roleRepo.AssignToUser(ctx, userRole)
 }
 
 // RegisterRoutes registers passwordless auth routes
@@ -221,205 +210,64 @@ type InitiateSignupResponse struct {
 	} `json:"can_login_with,omitempty"`
 }
 
-// InitiateSignup creates user account and sends OTP (with account linking support)
+// InitiateSignup validates the invitation and sends proof-of-email only.
+// No membership, authentication method or permissions change until verification.
 func (h *PasswordlessAuthHandlers) InitiateSignup(c *fiber.Ctx) error {
 	req, err := kernel.BindAndValidate[InitiateSignupRequest](c)
 	if err != nil {
 		return err
 	}
-
-	// 1. Validate invitation token
-	inv, err := h.invitationRepo.FindByToken(c.Context(), req.InvitationToken)
+	inv, err := h.signupInvitation(c.Context(), req.InvitationToken, req.Email, "")
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid or expired invitation",
-		})
+		return err
 	}
-
-	// 2. Verify invitation is valid
-	if !inv.CanBeAccepted() {
-		if inv.IsExpired() {
-			return c.Status(fiber.StatusGone).JSON(fiber.Map{
-				"error": "Invitation has expired",
-			})
-		}
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invitation cannot be accepted",
-		})
-	}
-
-	// 3. Verify email matches invitation
-	if inv.Email != req.Email {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Email does not match invitation",
-		})
-	}
-
-	tenantID := inv.TenantID
-
-	// 4. Check if tenant is active
-	tenantEntity, err := h.tenantRepo.FindByID(c.Context(), tenantID)
+	code, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeSignup)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Tenant not found",
-		})
+		return err
 	}
-	if !tenantEntity.IsActive() {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"error": "Tenant is not active",
-		})
-	}
+	return c.JSON(InitiateSignupResponse{Message: "Verify your email to accept the invitation.",
+		Email: req.Email, TenantID: inv.TenantID, RequiresOTP: true, ExpiresIn: int(time.Until(code.ExpiresAt).Seconds())})
+}
 
-	// 5. Check if user already exists in this tenant
-	existingUser, err := h.userRepo.FindByEmail(c.Context(), req.Email, tenantID)
+func (h *PasswordlessAuthHandlers) signupInvitation(ctx context.Context, token, email string, tenantID kernel.TenantID) (*invitation.Invitation, error) {
+	inv, err := h.invitationRepo.FindByToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if !inv.CanBeAccepted() || inv.Email != email || (!tenantID.IsEmpty() && tenantID != inv.TenantID) {
+		return nil, invitation.ErrInvitationInvalid()
+	}
+	t, err := h.tenantRepo.FindByID(ctx, inv.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if !t.IsActive() {
+		return nil, tenant.ErrTenantSuspended()
+	}
+	u, err := h.userRepo.FindByEmail(ctx, email, inv.TenantID)
 	if err != nil && !errx.IsNotFound(err) {
-		return errx.Wrap(err, "failed to check user existence", errx.TypeInternal)
+		return nil, err
 	}
-
-	// 🔥 ACCOUNT LINKING: Handle existing user
-	if existingUser != nil {
-		// User exists - check if we can link OTP authentication
-		if existingUser.HasOTP() {
-			// Already has OTP enabled
-			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
-				"error":                "Account already exists with email/OTP login. Please use login instead.",
-				"can_login_with_otp":   true,
-				"can_login_with_oauth": existingUser.HasOAuth(),
-				"oauth_provider":       existingUser.OAuthProvider,
-			})
-		}
-
-		// User exists with OAuth only - enable OTP for them
-		if existingUser.HasOAuth() {
-			existingUser.EnableOTP()
-
-			// Apply invitation scopes to existing user
-			for _, scope := range inv.GetScopes() {
-				if !existingUser.HasScope(scope) {
-					existingUser.AddScope(scope)
-				}
-			}
-
-			// Update user to enable OTP and apply scopes
-			if err := h.userRepo.Save(c.Context(), *existingUser); err != nil {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": "Failed to link OTP to existing account",
-				})
-			}
-
-			// Assign role from invitation
-			h.assignInvitationRole(c.Context(), existingUser.ID, tenantID, inv.GetRoleID())
-
-			// Mark invitation as accepted
-			if err := inv.Accept(existingUser.ID); err == nil {
-				h.invitationRepo.Save(c.Context(), *inv)
-			}
-
-			// Audit: OTP linked to existing OAuth account
-			h.auditService.LogAccountLinked(c.Context(), existingUser.ID, tenantID, "otp", c.IP())
-
-			// Generate and send OTP
-			otpEntity, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeVerification)
-			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": "Failed to send verification code",
-				})
-			}
-
-			authMethods := struct {
-				OTP      bool              `json:"otp"`
-				OAuth    bool              `json:"oauth"`
-				Provider iam.OAuthProvider `json:"oauth_provider,omitempty"`
-			}{
-				OTP:      true,
-				OAuth:    true,
-				Provider: existingUser.OAuthProvider,
-			}
-
-			return c.Status(fiber.StatusOK).JSON(InitiateSignupResponse{
-				Message:       "OTP authentication linked to your existing account. Please verify your email.",
-				Email:         req.Email,
-				TenantID:      tenantID,
-				RequiresOTP:   true,
-				ExpiresIn:     int(time.Until(otpEntity.ExpiresAt).Seconds()),
-				AccountLinked: true,
-				CanLoginWith:  &authMethods,
-			})
-		}
+	if u != nil && u.Status != user.UserStatusPending && !u.IsActive() {
+		return nil, user.ErrInvalidStatus()
 	}
-
-	// 6. Check if tenant can add more users (only for new users)
-	if existingUser == nil && !tenantEntity.CanAddUser() {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"error": "Organization has reached maximum user limit",
-		})
-	}
-
-	// 7. Create NEW user account
-	newUser := &user.User{
-		ID:            kernel.NewUserID(uuid.NewString()),
-		TenantID:      tenantID,
-		Email:         req.Email,
-		Name:          req.Name,
-		Status:        user.UserStatusPending,
-		Scopes:        inv.GetScopes(),
-		OTPEnabled:    true, // 🔥 Enable OTP for this user
-		EmailVerified: false,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-	}
-
-	// 8. Save user
-	if err := h.userRepo.Save(c.Context(), *newUser); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to create user account",
-		})
-	}
-
-	// 9. Update tenant user count
-	if err := tenantEntity.AddUser(); err == nil {
-		h.tenantRepo.Save(c.Context(), *tenantEntity)
-	}
-
-	// Audit: account created via OTP
-	h.auditService.LogAccountCreated(c.Context(), newUser.ID, tenantID, "otp", c.IP())
-
-	// Assign role from invitation
-	h.assignInvitationRole(c.Context(), newUser.ID, tenantID, inv.GetRoleID())
-
-	// 10. Mark invitation as accepted
-	if err := inv.Accept(newUser.ID); err == nil {
-		h.invitationRepo.Save(c.Context(), *inv)
-	}
-
-	// 11. Generate and send OTP
-	otpEntity, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeVerification)
-	if err != nil {
-		return c.Status(fiber.StatusPartialContent).JSON(fiber.Map{
-			"error":     "Account created but failed to send verification code",
-			"message":   "Please request a new code using the resend option",
-			"tenant_id": tenantID,
-		})
-	}
-
-	// 12. Return success response
-	return c.Status(fiber.StatusCreated).JSON(InitiateSignupResponse{
-		Message:     "Account created! Please check your email for verification code.",
-		Email:       req.Email,
-		TenantID:    tenantID,
-		RequiresOTP: true,
-		ExpiresIn:   int(time.Until(otpEntity.ExpiresAt).Seconds()),
-	})
+	return inv, nil
 }
 
 // VerifySignupRequest completes signup by verifying OTP
 type VerifySignupRequest struct {
-	Email    string          `json:"email"`
-	Code     string          `json:"code"`
-	TenantID kernel.TenantID `json:"tenant_id"`
+	Name            string          `json:"name"`
+	InvitationToken string          `json:"invitation_token"`
+	Email           string          `json:"email"`
+	Code            string          `json:"code"`
+	TenantID        kernel.TenantID `json:"tenant_id"`
 }
 
 func (r *VerifySignupRequest) Validate() error {
+	signup := InitiateSignupRequest{Email: r.Email, Name: r.Name, InvitationToken: r.InvitationToken}
+	if err := signup.Validate(); err != nil {
+		return err
+	}
 	if _, err := mail.ParseAddress(r.Email); err != nil {
 		return errx.Validation("valid email is required").WithDetail("field", "email")
 	}
@@ -432,53 +280,28 @@ func (r *VerifySignupRequest) Validate() error {
 	return nil
 }
 
-// VerifySignup verifies OTP and activates account
+// VerifySignup completes onboarding only after mailbox ownership is proven.
 func (h *PasswordlessAuthHandlers) VerifySignup(c *fiber.Ctx) error {
 	req, err := kernel.BindAndValidate[VerifySignupRequest](c)
 	if err != nil {
 		return err
 	}
-
-	// 1. Verify OTP
-	_, err = h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+	if _, err := h.signupInvitation(c.Context(), req.InvitationToken, req.Email, req.TenantID); err != nil {
+		return err
 	}
-
-	// 2. Find user
-	userEntity, err := h.userRepo.FindByEmail(c.Context(), req.Email, req.TenantID)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "User not found",
-		})
+	if _, err := h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeSignup); err != nil {
+		return err
 	}
-
-	// 3. Activate user if pending
-	if userEntity.Status == user.UserStatusPending {
-		if err := userEntity.Activate(); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-	}
-
-	userEntity.EmailVerified = true
-	userEntity.UpdatedAt = time.Now()
-
-	// 4. Save updated user
-	if err := h.userRepo.Save(c.Context(), *userEntity); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to activate account",
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"message":   "Email verified! Your account is now active. You can log in.",
-		"tenant_id": req.TenantID,
-		"email":     req.Email,
+	// Acceptance rechecks invitation/status inside a transaction. On failure the
+	// invitation stays pending; request a fresh OTP and retry without partial grants.
+	u, _, err := h.onboarding.Accept(c.Context(), req.InvitationToken, user.User{
+		Email: req.Email, Name: req.Name, TenantID: req.TenantID, EmailVerified: true, OTPEnabled: true,
 	})
+	if err != nil {
+		return err
+	}
+	h.auditService.LogAccountLinked(c.Context(), u.ID, u.TenantID, "otp", c.IP())
+	return c.JSON(fiber.Map{"message": "Email verified. You can now log in.", "tenant_id": u.TenantID, "email": u.Email})
 }
 
 // ============================================================================
@@ -551,7 +374,6 @@ func (h *PasswordlessAuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 			"error":                fmt.Sprintf("This account uses %s login. Please sign in with %s instead.", oauthProvider, oauthProvider),
 			"can_login_with_oauth": true,
 			"oauth_provider":       userEntity.OAuthProvider,
-			"suggestion":           "You can enable email/OTP login by signing up again with your invitation link.",
 		})
 	}
 
@@ -572,7 +394,7 @@ func (h *PasswordlessAuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 	}
 
 	// 6. Generate and send OTP
-	otpEntity, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeVerification)
+	otpEntity, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeLogin)
 	if err != nil {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": err.Error(),
@@ -626,7 +448,7 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 	}
 
 	// 1. Verify OTP
-	_, err = h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeVerification)
+	_, err = h.otpService.VerifyOTP(c.Context(), req.Email, req.Code, otp.OTPPurposeLogin)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Invalid or expired code",
@@ -642,7 +464,7 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 	}
 
 	// 3. Check user can login
-	if !userEntity.CanLogin() {
+	if !userEntity.CanLoginWithOTP() {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"error": "Account cannot login. Status: " + string(userEntity.Status),
 		})
@@ -654,12 +476,6 @@ func (h *PasswordlessAuthHandlers) VerifyLogin(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"error": "Organization is not active",
 		})
-	}
-
-	// 5. Ensure email is verified
-	if !userEntity.EmailVerified {
-		userEntity.EmailVerified = true
-		h.userRepo.Save(c.Context(), *userEntity)
 	}
 
 	// 6. Create session and generate tokens
@@ -715,10 +531,11 @@ func (h *PasswordlessAuthHandlers) createSessionAndTokens(c *fiber.Ctx, userEnti
 	// Generate JWT with session_id embedded
 	effectiveScopes := h.resolveScopes(ctx, userEntity)
 	accessToken, err := h.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
-		"email":      userEntity.Email,
-		"name":       userEntity.Name,
-		"scopes":     effectiveScopes,
-		"session_id": sessionID,
+		"credential_version": userEntity.CredentialVersion,
+		"email":              userEntity.Email,
+		"name":               userEntity.Name,
+		"scopes":             effectiveScopes,
+		"session_id":         sessionID,
 	})
 	if err != nil {
 		return nil, err
@@ -731,14 +548,15 @@ func (h *PasswordlessAuthHandlers) createSessionAndTokens(c *fiber.Ctx, userEnti
 
 	// Save refresh token linked to session
 	refreshToken := RefreshToken{
-		ID:        uuid.NewString(),
-		Token:     refreshTokenStr,
-		UserID:    userEntity.ID,
-		TenantID:  tenantEntity.ID,
-		SessionID: sessionID,
-		ExpiresAt: time.Now().UTC().Add(h.config.Auth.JWT.RefreshTokenTTL),
-		CreatedAt: time.Now(),
-		IsRevoked: false,
+		CredentialVersion: userEntity.CredentialVersion,
+		ID:                uuid.NewString(),
+		Token:             refreshTokenStr,
+		UserID:            userEntity.ID,
+		TenantID:          tenantEntity.ID,
+		SessionID:         sessionID,
+		ExpiresAt:         time.Now().UTC().Add(h.config.Auth.JWT.RefreshTokenTTL),
+		CreatedAt:         time.Now(),
+		IsRevoked:         false,
 	}
 	if err := h.tokenRepo.SaveRefreshToken(ctx, refreshToken); err != nil {
 		return nil, err
@@ -783,12 +601,16 @@ func (h *PasswordlessAuthHandlers) createSessionAndTokens(c *fiber.Ctx, userEnti
 
 // ResendOTPRequest for resending OTP
 type ResendOTPRequest struct {
-	Email    string          `json:"email"`
-	TenantID kernel.TenantID `json:"tenant_id"`
-	Purpose  string          `json:"purpose"`
+	InvitationToken string          `json:"invitation_token,omitempty"`
+	Email           string          `json:"email"`
+	TenantID        kernel.TenantID `json:"tenant_id"`
+	Purpose         string          `json:"purpose"`
 }
 
 func (r *ResendOTPRequest) Validate() error {
+	if r.Purpose == "signup" && strings.TrimSpace(r.InvitationToken) == "" {
+		return errx.Validation("invitation_token is required")
+	}
 	if _, err := mail.ParseAddress(r.Email); err != nil {
 		return errx.Validation("valid email is required").WithDetail("field", "email")
 	}
@@ -806,6 +628,17 @@ func (h *PasswordlessAuthHandlers) ResendOTP(c *fiber.Ctx) error {
 	req, err := kernel.BindAndValidate[ResendOTPRequest](c)
 	if err != nil {
 		return err
+	}
+
+	if req.Purpose == "signup" {
+		if _, err := h.signupInvitation(c.Context(), req.InvitationToken, req.Email, req.TenantID); err != nil {
+			return err
+		}
+		code, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeSignup)
+		if err != nil {
+			return err
+		}
+		return c.JSON(fiber.Map{"message": "Verification code sent", "expires_in": int(time.Until(code.ExpiresAt).Seconds())})
 	}
 
 	// Verify user exists in the tenant
@@ -826,21 +659,14 @@ func (h *PasswordlessAuthHandlers) ResendOTP(c *fiber.Ctx) error {
 		})
 	}
 
-	// Check user status based on purpose
-	if req.Purpose == "signup" && userEntity.Status != user.UserStatusPending {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Account is already verified. Please use login instead.",
-		})
-	}
-
-	if req.Purpose == "login" && !userEntity.IsActive() {
+	if req.Purpose == "login" && !userEntity.CanLoginWithOTP() {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"error": "Account is not active",
 		})
 	}
 
 	// Generate new OTP
-	otpEntity, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeVerification)
+	otpEntity, err := h.otpService.GenerateOTP(c.Context(), req.Email, otp.OTPPurposeLogin)
 	if err != nil {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": err.Error(),

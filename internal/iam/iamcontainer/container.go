@@ -6,22 +6,26 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/config"
 	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey"
+	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeyapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeyinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey/apikeysrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth"
 	"github.com/Abraxas-365/manifesto/internal/iam/auth/authinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
+	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation/invitationsrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp/otpinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/otp/otpsrv"
+	"github.com/Abraxas-365/manifesto/internal/iam/role/roleapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/role/roleinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/role/rolesrv"
 	"github.com/Abraxas-365/manifesto/internal/iam/scopes/scopeapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant/tenantsrv"
+	"github.com/Abraxas-365/manifesto/internal/iam/user/userapi"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/userinfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/user/usersrv"
 	"github.com/Abraxas-365/manifesto/internal/logx"
@@ -51,8 +55,8 @@ type Deps struct {
 // ---------------------------------------------------------------------------
 // Container: the public surface of the IAM module.
 // Services are exposed for developers to wire their own handlers.
-// Only auth and tenant handlers are pre-wired (auth is essential,
-// tenant routes were designed explicitly for platform admin vs self-service).
+// Customer IAM management, auth, catalog, and self-service handlers are pre-wired.
+// Cross-tenant administration is not exposed by this container.
 // ---------------------------------------------------------------------------
 
 type Container struct {
@@ -72,9 +76,14 @@ type Container struct {
 	// Scope catalog handler — read-only endpoint listing available scopes
 	ScopeCatalogHandler *scopeapi.ScopeCatalogHandler
 
-	// Tenant handlers — platform admin + self-service
-	TenantHandlers         *tenantapi.TenantHandlers
-	PlatformTenantHandlers *tenantapi.PlatformTenantHandlers
+	// Tenant-scoped management handlers
+	InvitationHandlers *invitationapi.InvitationHandlers
+	UserHandlers       *userapi.UserHandlers
+	RoleHandlers       *roleapi.RoleHandlers
+	APIKeyHandlers     *apikeyapi.APIKeyHandlers
+
+	// Tenant handlers — self-service only
+	TenantHandlers *tenantapi.TenantHandlers
 
 	// Middleware — needed by cmd/ to protect route groups
 	UnifiedAuthMiddleware *auth.UnifiedAuthMiddleware
@@ -194,6 +203,8 @@ func New(deps Deps) *Container {
 
 	auditService := authinfra.NewLogxAuditService()
 
+	onboarding := authinfra.NewPostgresInvitationAcceptor(deps.DB)
+
 	// ── Auth handlers ────────────────────────────────────────────────────
 
 	c.OAuthHandlers = auth.NewAuthHandlers(
@@ -208,6 +219,7 @@ func New(deps Deps) *Container {
 		roleRepo,
 		auditService,
 		c.RoleService,
+		onboarding,
 		deps.Cfg,
 	)
 
@@ -222,18 +234,22 @@ func New(deps Deps) *Container {
 		c.OTPService,
 		auditService,
 		c.RoleService,
+		onboarding,
 		deps.Cfg,
 	)
 
 	// ── API handlers ─────────────────────────────────────────────────────
 
+	c.InvitationHandlers = invitationapi.NewInvitationHandlers(c.InvitationService)
+	c.UserHandlers = userapi.NewUserHandlers(c.UserService)
+	c.RoleHandlers = roleapi.NewRoleHandlers(c.RoleService)
+	c.APIKeyHandlers = apikeyapi.NewAPIKeyHandlers(c.APIKeyService)
 	c.ScopeCatalogHandler = scopeapi.NewScopeCatalogHandler()
 	c.TenantHandlers = tenantapi.NewTenantHandlers(c.TenantService)
-	c.PlatformTenantHandlers = tenantapi.NewPlatformTenantHandlers(c.TenantService)
 
 	// ── Middleware ────────────────────────────────────────────────────────
 
-	c.UnifiedAuthMiddleware = auth.NewAPIKeyMiddleware(c.APIKeyService, c.TokenService, sessionRepo, deps.Cfg.Auth.Cookie.AccessTokenName)
+	c.UnifiedAuthMiddleware = auth.NewAPIKeyMiddleware(c.APIKeyService, c.TokenService, sessionRepo, deps.Cfg.Auth.Cookie.AccessTokenName, userRepo, tenantRepo)
 
 	// ── Background services ──────────────────────────────────────────────
 

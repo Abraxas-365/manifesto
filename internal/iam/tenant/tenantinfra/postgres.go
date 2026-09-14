@@ -5,18 +5,18 @@ import (
 	"database/sql"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
+	"github.com/Abraxas-365/manifesto/internal/iam/iaminfra"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
-	"github.com/jmoiron/sqlx"
 )
 
 // PostgresTenantRepository is the PostgreSQL implementation of TenantRepository
 type PostgresTenantRepository struct {
-	db *sqlx.DB
+	db iaminfra.DBTX
 }
 
 // NewPostgresTenantRepository creates a new instance of the tenant repository
-func NewPostgresTenantRepository(db *sqlx.DB) tenant.TenantRepository {
+func NewPostgresTenantRepository(db iaminfra.DBTX) tenant.TenantRepository {
 	return &PostgresTenantRepository{
 		db: db,
 	}
@@ -206,11 +206,11 @@ func (r *PostgresTenantRepository) tenantExists(ctx context.Context, id kernel.T
 
 // PostgresTenantConfigRepository is the PostgreSQL implementation of TenantConfigRepository
 type PostgresTenantConfigRepository struct {
-	db *sqlx.DB
+	db iaminfra.DBTX
 }
 
 // NewPostgresTenantConfigRepository creates a new instance of the tenant configuration repository
-func NewPostgresTenantConfigRepository(db *sqlx.DB) tenant.TenantConfigRepository {
+func NewPostgresTenantConfigRepository(db iaminfra.DBTX) tenant.TenantConfigRepository {
 	return &PostgresTenantConfigRepository{
 		db: db,
 	}

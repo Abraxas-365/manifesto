@@ -38,6 +38,10 @@ func (s *RoleService) CreateRole(
 	req role.CreateRoleRequest,
 	callerScopes []string,
 ) (*role.Role, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -116,6 +120,10 @@ func (s *RoleService) UpdateRole(
 	req role.UpdateRoleRequest,
 	callerScopes []string,
 ) (*role.RoleDTO, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	r, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
 	if err != nil {
 		return nil, role.ErrRoleNotFound()
@@ -172,10 +180,19 @@ func (s *RoleService) AssignRoleToUser(
 	userID kernel.UserID,
 	tenantID kernel.TenantID,
 ) error {
-	// Verify role exists
-	_, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
+	req := role.AssignRoleRequest{UserID: userID}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+
+	// Verify role exists and reject legacy platform-bearing roles.
+	r, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
 	if err != nil {
 		return role.ErrRoleNotFound()
+	}
+	if scopes.ContainsPlatformScope(r.Scopes) {
+		return role.ErrRoleInvalidScopes().
+			WithDetail("reason", "platform scopes are not available in tenant IAM")
 	}
 
 	// Verify user exists
@@ -285,10 +302,10 @@ func (s *RoleService) validateScopes(scopesList []string, callerScopes []string)
 		return role.ErrRoleInvalidScopes().WithDetail("reason", "at least one scope is required")
 	}
 
-	// Reject platform scopes from non-platform callers
-	if scopes.ContainsPlatformScope(scopesList) && !scopes.CallerHasPlatformScope(callerScopes) {
+	// Platform permissions are never assignable through tenant IAM.
+	if scopes.ContainsPlatformScope(scopesList) {
 		return role.ErrRoleInvalidScopes().
-			WithDetail("reason", "platform scopes can only be assigned by platform administrators")
+			WithDetail("reason", "platform scopes are not available in tenant IAM")
 	}
 
 	var invalidScopes []string

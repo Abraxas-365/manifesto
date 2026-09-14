@@ -5,15 +5,11 @@ import (
 	"strings"
 )
 
-// platformPrefix is the reserved prefix for scopes that may only be held by
-// users belonging to the platform (operator) tenant. Any scope string that
-// starts with this prefix is considered a platform scope and will be rejected
-// when a non-platform caller tries to assign it to a user, role, or API key.
+// platformPrefix is reserved for the separate operator authority. Tenant IAM
+// never grants these scopes, including to callers holding the tenant wildcard.
 const platformPrefix = "platform:"
 
-// IsPlatformScope returns true if the scope is reserved for platform operators.
-// Platform scopes use the "platform:" prefix and cannot be assigned by regular
-// tenant admins — only callers who themselves hold a platform scope may grant them.
+// IsPlatformScope reports whether a scope is outside tenant IAM.
 func IsPlatformScope(scope string) bool {
 	return strings.HasPrefix(scope, platformPrefix)
 }
@@ -22,17 +18,6 @@ func IsPlatformScope(scope string) bool {
 func ContainsPlatformScope(scopeList []string) bool {
 	for _, s := range scopeList {
 		if IsPlatformScope(s) {
-			return true
-		}
-	}
-	return false
-}
-
-// CallerHasPlatformScope returns true if the caller's effective scopes include
-// at least one platform scope (or the wildcard "*" super scope).
-func CallerHasPlatformScope(callerScopes []string) bool {
-	for _, s := range callerScopes {
-		if s == ScopeAll || IsPlatformScope(s) {
 			return true
 		}
 	}
@@ -89,8 +74,11 @@ func GetNonPlatformScopes() []string {
 	return out
 }
 
-// ValidateScope checks if a scope is valid.
+// ValidateScope checks if a scope is valid for tenant IAM.
 func ValidateScope(scope string) bool {
+	if IsPlatformScope(scope) {
+		return false
+	}
 	if scope == ScopeAll {
 		return true
 	}

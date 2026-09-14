@@ -21,24 +21,8 @@ func NewPlatformTenantHandlers(service *tenantsrv.TenantService) *PlatformTenant
 	return &PlatformTenantHandlers{service: service}
 }
 
-func (h *PlatformTenantHandlers) RegisterRoutes(router fiber.Router, authMiddleware *auth.UnifiedAuthMiddleware) {
-	tenants := router.Group("/admin/tenants", authMiddleware.Authenticate())
-
-	tenants.Post("/", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsWrite), h.CreateTenant)
-	tenants.Get("/", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsRead), h.GetAllTenants)
-	tenants.Get("/:id", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsRead), h.GetTenant)
-	tenants.Put("/:id", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsWrite), h.UpdateTenant)
-	tenants.Delete("/:id", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsDelete), h.DeleteTenant)
-	tenants.Post("/:id/suspend", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsSuspend), h.SuspendTenant)
-	tenants.Post("/:id/activate", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsSuspend), h.ActivateTenant)
-	tenants.Post("/:id/upgrade", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsWrite), h.UpgradePlan)
-	tenants.Get("/:id/stats", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsRead), h.GetTenantStats)
-	tenants.Get("/:id/usage", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsRead), h.GetTenantUsage)
-	tenants.Get("/:id/users", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsRead), h.GetTenantUsers)
-	tenants.Get("/:id/config", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsConfig), h.GetTenantConfig)
-	tenants.Put("/:id/config", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsConfig), h.SetTenantConfig)
-	tenants.Delete("/:id/config/:key", authMiddleware.RequireScope(iamscopes.ScopePlatformTenantsConfig), h.DeleteTenantConfig)
-}
+// Cross-tenant handlers are retained for a future operator app. They are not
+// wired into customer IAM and deliberately provide no tenant-auth route registrar.
 
 func (h *PlatformTenantHandlers) CreateTenant(c *fiber.Ctx) error {
 	req, err := kernel.BindAndValidate[tenant.CreateTenantRequest](c)

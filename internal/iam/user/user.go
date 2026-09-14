@@ -30,11 +30,13 @@ const (
 
 // User entity representing a user in the system
 type User struct {
-	ID       kernel.UserID   `db:"id" json:"id"`
-	TenantID kernel.TenantID `db:"tenant_id" json:"tenant_id"`
-	Email    string          `db:"email" json:"email"`
-	Name     string          `db:"name" json:"name"`
-	Picture  *string         `db:"picture" json:"picture,omitempty"`
+	// CredentialVersion is advanced atomically by persistence on suspension.
+	CredentialVersion int64           `db:"credential_version" json:"-"`
+	ID                kernel.UserID   `db:"id" json:"id"`
+	TenantID          kernel.TenantID `db:"tenant_id" json:"tenant_id"`
+	Email             string          `db:"email" json:"email"`
+	Name              string          `db:"name" json:"name"`
+	Picture           *string         `db:"picture" json:"picture,omitempty"`
 
 	// Authentication methods (can have multiple)
 	OAuthProvider   iam.OAuthProvider `db:"oauth_provider" json:"oauth_provider"`
@@ -246,6 +248,9 @@ type UpdateUserRequest struct {
 }
 
 func (r *UpdateUserRequest) Validate() error {
+	if r.Status != nil {
+		return errx.Validation("Use the suspend or reinstate operation; activation belongs to onboarding").WithDetail("field", "status")
+	}
 	if r.Name != nil && utf8.RuneCountInString(strings.TrimSpace(*r.Name)) < 2 {
 		return errx.Validation("Name must be at least 2 characters").WithDetail("field", "name")
 	}
@@ -297,6 +302,35 @@ type UserListResponseDTO struct {
 // ============================================================================
 // Scope Management DTOs
 // ============================================================================
+
+// SetUserScopesRequest replaces direct scopes; an explicit empty array clears them.
+type SetUserScopesRequest struct {
+	Scopes []string `json:"scopes"`
+}
+
+func (r *SetUserScopesRequest) Validate() error {
+	if r.Scopes == nil {
+		return errx.Validation("Scopes must be provided as an array").WithDetail("field", "scopes")
+	}
+	return nil
+}
+
+// ChangeUserScopesRequest adds or removes the supplied direct scopes.
+type ChangeUserScopesRequest struct {
+	Scopes []string `json:"scopes"`
+}
+
+func (r *ChangeUserScopesRequest) Validate() error {
+	if len(r.Scopes) == 0 {
+		return errx.Validation("At least one scope is required").WithDetail("field", "scopes")
+	}
+	for _, scope := range r.Scopes {
+		if strings.TrimSpace(scope) == "" {
+			return errx.Validation("Scopes must not be empty").WithDetail("field", "scopes")
+		}
+	}
+	return nil
+}
 
 // ScopeDetail detailed information about a scope
 type ScopeDetail struct {

@@ -1,18 +1,19 @@
 package kernel
 
+import "strings"
+
 // ============================================================================
 // Context Types
 // ============================================================================
 
 // AuthContext is the authentication context injected into each request
 type AuthContext struct {
-	UserID    *UserID  `json:"user_id"`
+	Actor     Actor    `json:"actor"`
 	TenantID  TenantID `json:"tenant_id"`
 	SessionID string   `json:"session_id,omitempty"`
 	Email     string   `json:"email"`
 	Name      string   `json:"name"`
 	Scopes    []string `json:"scopes"`
-	IsAPIKey  bool     `json:"is_api_key"`
 }
 
 // ============================================================================
@@ -21,19 +22,21 @@ type AuthContext struct {
 
 // IsValid checks whether the AuthContext is valid
 func (ac *AuthContext) IsValid() bool {
-	if ac.IsAPIKey {
-		return !ac.TenantID.IsEmpty()
-	}
-	return ac.UserID != nil && !ac.UserID.IsEmpty() && !ac.TenantID.IsEmpty()
+	return ac != nil && ac.Actor.IsValid() && !ac.TenantID.IsEmpty()
 }
 
 // ============================================================================
 // Scope Management Methods
 // ============================================================================
 
-// MatchScope checks if a held scope grants access to the required scope.
-// Supports exact match, global wildcard "*", and prefix wildcards (e.g., "roles:*" matches "roles:read").
+// MatchScope checks tenant application permissions. The wildcard "*" grants
+// all application actions, never platform authority. Legacy platform grants
+// are inert, including exact matches. Resource access must separately be
+// constrained to AuthContext.TenantID by handlers and repositories.
 func MatchScope(held, required string) bool {
+	if strings.HasPrefix(held, "platform:") || strings.HasPrefix(required, "platform:") {
+		return false
+	}
 	if held == required || held == "*" {
 		return true
 	}

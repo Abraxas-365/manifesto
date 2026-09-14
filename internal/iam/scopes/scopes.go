@@ -1,7 +1,7 @@
 package scopes
 
 const (
-	// Super scope - full access to everything
+	// Tenant wildcard — full application access within the authenticated tenant only
 	ScopeAll = "*"
 
 	// User management scopes
@@ -43,14 +43,6 @@ const (
 	ScopeInvitationsWrite  = "invitations:write"
 	ScopeInvitationsDelete = "invitations:delete"
 	ScopeInvitationsRevoke = "invitations:revoke"
-
-	// Platform admin scopes — only granted to users in the platform tenant.
-	ScopePlatformTenantsAll     = "platform:tenants:*"
-	ScopePlatformTenantsRead    = "platform:tenants:read"
-	ScopePlatformTenantsWrite   = "platform:tenants:write"
-	ScopePlatformTenantsDelete  = "platform:tenants:delete"
-	ScopePlatformTenantsConfig  = "platform:tenants:config"
-	ScopePlatformTenantsSuspend = "platform:tenants:suspend"
 )
 
 // ScopeCategories organizes all scopes by domain for the catalog endpoint.
@@ -95,19 +87,11 @@ var ScopeCategories = map[string][]string{
 		ScopeInvitationsDelete,
 		ScopeInvitationsRevoke,
 	},
-	"Platform: Tenants": {
-		ScopePlatformTenantsAll,
-		ScopePlatformTenantsRead,
-		ScopePlatformTenantsWrite,
-		ScopePlatformTenantsDelete,
-		ScopePlatformTenantsConfig,
-		ScopePlatformTenantsSuspend,
-	},
 }
 
 // ScopeDescriptions provides human-readable descriptions for the catalog endpoint.
 var ScopeDescriptions = map[string]string{
-	ScopeAll: "Full access to all system resources",
+	ScopeAll: "Full application access within your tenant",
 
 	// Users
 	ScopeUsersAll:    "Full access to user management",
@@ -129,11 +113,11 @@ var ScopeDescriptions = map[string]string{
 	ScopeScopesAssign: "Add or remove scopes from users",
 
 	// Tenants
-	ScopeTenantsAll:    "Full access to tenant management",
-	ScopeTenantsRead:   "View tenants",
-	ScopeTenantsWrite:  "Create and edit tenants",
-	ScopeTenantsDelete: "Delete tenants",
-	ScopeTenantsConfig: "Manage tenant configuration",
+	ScopeTenantsAll:    "Full access to your tenant self-service",
+	ScopeTenantsRead:   "View your tenant",
+	ScopeTenantsWrite:  "Edit your tenant",
+	ScopeTenantsDelete: "Delete your tenant",
+	ScopeTenantsConfig: "Manage your tenant configuration",
 
 	// API Keys
 	ScopeAPIKeysAll:    "Full access to API key management",
@@ -148,12 +132,4 @@ var ScopeDescriptions = map[string]string{
 	ScopeInvitationsWrite:  "Create invitations",
 	ScopeInvitationsDelete: "Delete invitations",
 	ScopeInvitationsRevoke: "Revoke invitations",
-
-	// Platform admin
-	ScopePlatformTenantsAll:     "Full access to platform tenant management",
-	ScopePlatformTenantsRead:    "View all tenants across the platform",
-	ScopePlatformTenantsWrite:   "Create and edit tenants",
-	ScopePlatformTenantsDelete:  "Delete tenants",
-	ScopePlatformTenantsConfig:  "Manage any tenant's configuration",
-	ScopePlatformTenantsSuspend: "Suspend and activate tenants",
 }

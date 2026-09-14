@@ -145,11 +145,16 @@ func registerRoutes(app *fiber.App, container *Container) {
 	// Scope catalog (read-only, authenticated)
 	container.IAM.ScopeCatalogHandler.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
 
+	// Tenant-scoped user, role, API-key, and invitation management
+	container.IAM.InvitationHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.UserHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.RoleHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	container.IAM.APIKeyHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+
 	// Tenant self-service routes
 	container.IAM.TenantHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
 
-	// Platform admin routes
-	container.IAM.PlatformTenantHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
+	// Cross-tenant administration is intentionally not exposed by this customer API.
 
 	// manifesto:route-registration — add your own routes here
 

@@ -47,6 +47,10 @@ func NewInvitationService(
 
 // CreateInvitation creates a new invitation
 func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kernel.TenantID, invitedBy kernel.UserID, req invitation.CreateInvitationRequest) (*invitation.Invitation, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	// Check that the tenant exists
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -66,10 +70,14 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 
 	// Note: scope authorization is enforced by the API middleware (invitations:write)
 
-	// Check that the user does not already exist in the tenant
+	// Existing pending/active members may receive a fresh invitation to finish
+	// onboarding or link another authentication method after proving ownership.
 	existingUser, err := s.userRepo.FindByEmail(ctx, req.Email, tenantID)
-	if err == nil && existingUser != nil {
-		return nil, invitation.ErrUserAlreadyExists().WithDetail("email", req.Email)
+	if err != nil && !errx.IsNotFound(err) {
+		return nil, err
+	}
+	if existingUser != nil && existingUser.Status != user.UserStatusPending && !existingUser.IsActive() {
+		return nil, user.ErrInvalidStatus()
 	}
 
 	// Check that no pending invitation exists for this email
@@ -83,9 +91,12 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 
 	// Validate role if provided
 	if req.RoleID != nil && !req.RoleID.IsEmpty() {
-		_, err := s.roleRepo.FindByID(ctx, *req.RoleID, tenantID)
+		r, err := s.roleRepo.FindByID(ctx, *req.RoleID, tenantID)
 		if err != nil {
-			return nil, role.ErrRoleNotFound().WithDetail("role_id", req.RoleID.String())
+			return nil, err
+		}
+		if err := s.validateScopes(r.Scopes); err != nil {
+			return nil, err
 		}
 	}
 
@@ -96,8 +107,10 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 	}
 
 	// Validate scopes
-	if err := s.validateScopes(resolvedScopes); err != nil {
-		return nil, err
+	if len(resolvedScopes) > 0 || req.RoleID == nil || req.RoleID.IsEmpty() {
+		if err := s.validateScopes(resolvedScopes); err != nil {
+			return nil, err
+		}
 	}
 
 	// Generate unique token using configuration
@@ -142,6 +155,34 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 	return newInvitation, nil
 }
 
+// ResendInvitation retries delivery without creating or accepting an invitation.
+func (s *InvitationService) ResendInvitation(ctx context.Context, id kernel.InvitationID, tenantID kernel.TenantID) error {
+	inv, err := s.invitationRepo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if inv.TenantID != tenantID {
+		return invitation.ErrInvitationNotFound()
+	}
+	if !inv.CanBeAccepted() {
+		return invitation.ErrInvitationInvalid()
+	}
+	t, err := s.tenantRepo.FindByID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if !t.IsActive() {
+		return tenant.ErrTenantSuspended()
+	}
+	if s.notificationService == nil {
+		return errx.New("invitation notifier is not configured", errx.TypeExternal)
+	}
+	if err := s.notificationService.SendInvitation(ctx, inv.Email, inv.Token, tenantID, inv.InvitedBy); err != nil {
+		return errx.Wrap(err, "failed to resend invitation", errx.TypeExternal)
+	}
+	return nil
+}
+
 // GetInvitationByID gets an invitation by ID
 func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID kernel.InvitationID, tenantID kernel.TenantID) (*invitation.InvitationResponse, error) {
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
@@ -159,6 +200,11 @@ func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID 
 
 // GetInvitationByToken gets an invitation by token
 func (s *InvitationService) GetInvitationByToken(ctx context.Context, token string) (*invitation.InvitationResponse, error) {
+	req := invitation.ValidateInvitationRequest{Token: token}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	inv, err := s.invitationRepo.FindByToken(ctx, token)
 	if err != nil {
 		return nil, invitation.ErrInvitationNotFound()
@@ -169,6 +215,11 @@ func (s *InvitationService) GetInvitationByToken(ctx context.Context, token stri
 
 // ValidateInvitationToken validates an invitation token without accepting it
 func (s *InvitationService) ValidateInvitationToken(ctx context.Context, token string) (*invitation.ValidateInvitationResponse, error) {
+	req := invitation.ValidateInvitationRequest{Token: token}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	inv, err := s.invitationRepo.FindByToken(ctx, token)
 	if err != nil {
 		return &invitation.ValidateInvitationResponse{

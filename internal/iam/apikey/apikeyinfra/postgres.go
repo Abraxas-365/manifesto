@@ -66,7 +66,7 @@ func (r *PostgresAPIKeyRepository) update(ctx context.Context, key apikey.APIKey
 			name = :name,
 			description = :description,
 			scopes = :scopes,
-			is_active = :is_active,
+			is_active = is_active AND :is_active,
 			expires_at = :expires_at,
 			last_used_at = :last_used_at,
 			updated_at = :updated_at

@@ -32,6 +32,7 @@ type AuthHandlers struct {
 	roleRepo       role.RoleRepository
 	auditService   AuditService
 	scopeResolver  ScopeResolver
+	onboarding     InvitationAcceptor
 	config         *config.Config
 }
 
@@ -48,6 +49,7 @@ func NewAuthHandlers(
 	roleRepo role.RoleRepository,
 	auditService AuditService,
 	scopeResolver ScopeResolver,
+	onboarding InvitationAcceptor,
 	config *config.Config,
 ) *AuthHandlers {
 	return &AuthHandlers{
@@ -62,6 +64,7 @@ func NewAuthHandlers(
 		roleRepo:       roleRepo,
 		auditService:   auditService,
 		scopeResolver:  scopeResolver,
+		onboarding:     onboarding,
 		config:         config,
 	}
 }
@@ -70,6 +73,7 @@ func NewAuthHandlers(
 type LoginRequest struct {
 	Provider        iam.OAuthProvider `json:"provider"`
 	InvitationToken string            `json:"invitation_token,omitempty"`
+	TenantID        kernel.TenantID   `json:"tenant_id,omitempty"`
 }
 
 func (r *LoginRequest) Validate() error {
@@ -141,7 +145,8 @@ func (ah *AuthHandlers) InitiateLogin(c *fiber.Ctx) error {
 
 	// Store state information
 	stateData := map[string]interface{}{
-		"provider": normalizedProvider,
+		"provider":  normalizedProvider,
+		"tenant_id": req.TenantID.String(),
 	}
 	if req.InvitationToken != "" {
 		stateData["invitation_token"] = req.InvitationToken
@@ -232,9 +237,7 @@ func (ah *AuthHandlers) HandleCallback(c *fiber.Ctx) error {
 	// Find or create user
 	userEntity, tenantEntity, err := ah.findOrCreateUser(c.Context(), userInfo, provider, stateData, c.IP())
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return err
 	}
 
 	// Generate application tokens and create session
@@ -327,7 +330,7 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 	}
 
 	// Verify the user can log in
-	if !userEntity.CanLogin() {
+	if !userEntity.CanLogin() || refreshToken.CredentialVersion != userEntity.CredentialVersion {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "User cannot login",
 		})
@@ -347,10 +350,11 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 	// 2. Generate new access token with session_id
 	effectiveScopes := ah.resolveScopes(c.Context(), userEntity)
 	accessToken, err := ah.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
-		"email":      userEntity.Email,
-		"name":       userEntity.Name,
-		"scopes":     effectiveScopes,
-		"session_id": refreshToken.SessionID,
+		"credential_version": userEntity.CredentialVersion,
+		"email":              userEntity.Email,
+		"name":               userEntity.Name,
+		"scopes":             effectiveScopes,
+		"session_id":         refreshToken.SessionID,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -368,14 +372,15 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 
 	// 4. Save new refresh token linked to same session
 	newRefreshToken := RefreshToken{
-		ID:        generateID(),
-		Token:     newRefreshTokenStr,
-		UserID:    userEntity.ID,
-		TenantID:  tenantEntity.ID,
-		SessionID: refreshToken.SessionID,
-		ExpiresAt: time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
-		CreatedAt: time.Now(),
-		IsRevoked: false,
+		CredentialVersion: userEntity.CredentialVersion,
+		ID:                generateID(),
+		Token:             newRefreshTokenStr,
+		UserID:            userEntity.ID,
+		TenantID:          tenantEntity.ID,
+		SessionID:         refreshToken.SessionID,
+		ExpiresAt:         time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		CreatedAt:         time.Now(),
+		IsRevoked:         false,
 	}
 	if err := ah.tokenRepo.SaveRefreshToken(c.Context(), newRefreshToken); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -420,7 +425,11 @@ func (ah *AuthHandlers) RefreshToken(c *fiber.Ctx) error {
 // Logout invalidates the current session and its tokens (single-device logout)
 func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
+	if !ok {
+		return iam.ErrUnauthorized()
+	}
+	userID, isUser := authContext.Actor.UserID()
+	if !isUser {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
@@ -433,7 +442,7 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 	}
 
 	// Audit: logout
-	ah.auditService.LogLogout(c.Context(), *authContext.UserID, authContext.TenantID, c.IP())
+	ah.auditService.LogLogout(c.Context(), userID, authContext.TenantID, c.IP())
 
 	// Clear cookies
 	ah.clearAuthCookies(c)
@@ -446,20 +455,24 @@ func (ah *AuthHandlers) Logout(c *fiber.Ctx) error {
 // LogoutAll invalidates all user sessions and tokens across all devices
 func (ah *AuthHandlers) LogoutAll(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
+	if !ok {
+		return iam.ErrUnauthorized()
+	}
+	userID, isUser := authContext.Actor.UserID()
+	if !isUser {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
 	}
 
 	// Revoke all refresh tokens
-	ah.tokenRepo.RevokeAllUserTokens(c.Context(), *authContext.UserID)
+	ah.tokenRepo.RevokeAllUserTokens(c.Context(), userID)
 
 	// Revoke all sessions
-	ah.sessionRepo.RevokeAllUserSessions(c.Context(), *authContext.UserID)
+	ah.sessionRepo.RevokeAllUserSessions(c.Context(), userID)
 
 	// Audit: logout
-	ah.auditService.LogLogout(c.Context(), *authContext.UserID, authContext.TenantID, c.IP())
+	ah.auditService.LogLogout(c.Context(), userID, authContext.TenantID, c.IP())
 
 	// Clear cookies
 	ah.clearAuthCookies(c)
@@ -472,13 +485,17 @@ func (ah *AuthHandlers) LogoutAll(c *fiber.Ctx) error {
 // ListSessions returns all active sessions for the current user
 func (ah *AuthHandlers) ListSessions(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
+	if !ok {
+		return iam.ErrUnauthorized()
+	}
+	userID, isUser := authContext.Actor.UserID()
+	if !isUser {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
 	}
 
-	sessions, err := ah.sessionRepo.FindUserSessions(c.Context(), *authContext.UserID)
+	sessions, err := ah.sessionRepo.FindUserSessions(c.Context(), userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to list sessions",
@@ -540,14 +557,18 @@ func (ah *AuthHandlers) clearAuthCookies(c *fiber.Ctx) {
 // GetCurrentUser retrieves the authenticated user's information
 func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 	authContext, ok := GetAuthContext(c)
-	if !ok || authContext.IsAPIKey || authContext.UserID == nil {
+	if !ok {
+		return iam.ErrUnauthorized()
+	}
+	userID, isUser := authContext.Actor.UserID()
+	if !isUser {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": iam.ErrUnauthorized().Error(),
 		})
 	}
 
 	// Find complete user
-	userEntity, err := ah.userRepo.FindByID(c.Context(), *authContext.UserID, authContext.TenantID)
+	userEntity, err := ah.userRepo.FindByID(c.Context(), userID, authContext.TenantID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "User not found",
@@ -570,169 +591,60 @@ func (ah *AuthHandlers) GetCurrentUser(c *fiber.Ctx) error {
 
 // findOrCreateUser handles user lookup, creation, and account linking for OAuth
 func (ah *AuthHandlers) findOrCreateUser(ctx context.Context, userInfo *OAuthUserInfo, provider iam.OAuthProvider, stateData map[string]interface{}, ip string) (*user.User, *tenant.Tenant, error) {
-	var tenantEntity *tenant.Tenant
-	var invitationToken string
-	var invitationScopes []string
-	var invitationRoleID *kernel.RoleID
-	var err error
-
-	// Check if there's an invitation token
-	if token, ok := stateData["invitation_token"].(string); ok && token != "" {
-		invitationToken = token
+	if userInfo == nil || userInfo.Email == "" || userInfo.ID == "" {
+		return nil, nil, user.ErrEmailNotVerified()
 	}
-
-	// If there's an invitation token, validate it and get the tenant
-	if invitationToken != "" {
-		inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
+	if token, _ := stateData["invitation_token"].(string); token != "" {
+		if !userInfo.EmailVerified {
+			return nil, nil, user.ErrEmailNotVerified()
+		}
+		tenantID, _ := stateData["tenant_id"].(string)
+		candidate := user.User{TenantID: kernel.NewTenantID(tenantID), Email: userInfo.Email, Name: userInfo.Name, Picture: ptrx.String(userInfo.Picture),
+			OAuthProvider: provider, OAuthProviderID: userInfo.ID, EmailVerified: true}
+		u, t, err := ah.onboarding.Accept(ctx, token, candidate)
 		if err != nil {
-			return nil, nil, errx.New("invalid invitation token", errx.TypeBusiness)
+			return nil, nil, err
 		}
-
-		if !inv.CanBeAccepted() {
-			if inv.IsExpired() {
-				return nil, nil, errx.New("invitation expired", errx.TypeBusiness)
-			}
-			return nil, nil, errx.New("invitation not valid", errx.TypeBusiness)
-		}
-
-		if inv.GetEmail() != userInfo.Email {
-			return nil, nil, errx.New("email does not match invitation", errx.TypeBusiness)
-		}
-
-		invitationScopes = inv.GetScopes()
-		invitationRoleID = inv.GetRoleID()
-
-		tenantEntity, err = ah.tenantRepo.FindByID(ctx, inv.GetTenantID())
-		if err != nil {
-			return nil, nil, tenant.ErrTenantNotFound()
-		}
-	} else {
-		return nil, nil, errx.New("invitation required for registration", errx.TypeAuthorization)
+		ah.auditService.LogAccountLinked(ctx, u.ID, t.ID, "oauth_"+strings.ToLower(string(provider)), ip)
+		return u, t, nil
 	}
-
-	// Account linking: look up existing user
-	existingUser, err := ah.userRepo.FindByEmail(ctx, userInfo.Email, tenantEntity.ID)
-	if err == nil {
-		needsSave := false
-
-		if existingUser.OAuthProvider != provider || existingUser.OAuthProviderID != userInfo.ID {
-			existingUser.LinkOAuth(provider, userInfo.ID)
-			existingUser.UpdateProfile(userInfo.Name, userInfo.Picture)
-			needsSave = true
-			ah.auditService.LogAccountLinked(ctx, existingUser.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), ip)
-		}
-
-		// Apply invitation scopes to existing user
-		for _, scope := range invitationScopes {
-			if !existingUser.HasScope(scope) {
-				existingUser.AddScope(scope)
-				needsSave = true
-			}
-		}
-
-		if needsSave {
-			if err := ah.userRepo.Save(ctx, *existingUser); err != nil {
-				return nil, nil, err
-			}
-		}
-
-		// Assign role from invitation
-		ah.assignInvitationRole(ctx, existingUser.ID, tenantEntity.ID, invitationRoleID)
-
-		// Accept invitation for account linking
-		if invitationToken != "" {
-			inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
-			if err == nil {
-				if err := inv.Accept(existingUser.ID); err == nil {
-					ah.invitationRepo.Save(ctx, *inv)
-				}
-			}
-		}
-
-		return existingUser, tenantEntity, nil
-	}
-
-	// Check if the tenant can add more users
-	if !tenantEntity.CanAddUser() {
-		return nil, nil, tenant.ErrMaxUsersReached()
-	}
-
-	// Determine scopes
-	var userScopes []string
-	if len(invitationScopes) > 0 {
-		userScopes = invitationScopes
-	} else {
-		userScopes = []string{}
-	}
-
-	// Create new user with OAuth (OTPEnabled = false by default)
-	newUser := &user.User{
-		ID:              kernel.NewUserID(generateID()),
-		TenantID:        tenantEntity.ID,
-		Email:           userInfo.Email,
-		Name:            userInfo.Name,
-		Picture:         ptrx.String(userInfo.Picture),
-		Status:          user.UserStatusActive,
-		Scopes:          userScopes,
-		OAuthProvider:   provider,
-		OAuthProviderID: userInfo.ID,
-		OTPEnabled:      false, // 🔥 OAuth users don't have OTP by default
-		EmailVerified:   userInfo.EmailVerified,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
-	}
-
-	// Save user
-	if err := ah.userRepo.Save(ctx, *newUser); err != nil {
+	// Returning login uses existing provider membership, never email-based linking.
+	tenantID, _ := stateData["tenant_id"].(string)
+	candidates, err := ah.userRepo.FindByEmailAcrossTenants(ctx, userInfo.Email)
+	if err != nil {
 		return nil, nil, err
 	}
-
-	// Increment tenant user count
-	if err := tenantEntity.AddUser(); err != nil {
-		ah.userRepo.Delete(ctx, newUser.ID, tenantEntity.ID)
+	var existing *user.User
+	for _, u := range candidates {
+		if tenantID != "" && u.TenantID.String() != tenantID {
+			continue
+		}
+		if u.OAuthProvider != provider || u.OAuthProviderID != userInfo.ID {
+			continue
+		}
+		if existing != nil {
+			return nil, nil, errx.Validation("tenant_id is required for multiple memberships")
+		}
+		existing = u
+	}
+	if existing == nil {
+		return nil, nil, errx.New("invitation required for registration or linking", errx.TypeAuthorization)
+	}
+	if !existing.CanLogin() {
+		return nil, nil, user.ErrUserSuspended()
+	}
+	t, err := ah.tenantRepo.FindByID(ctx, existing.TenantID)
+	if err != nil {
 		return nil, nil, err
 	}
-
-	// Save updated tenant
-	if err := ah.tenantRepo.Save(ctx, *tenantEntity); err != nil {
-		// Log error but don't fail
+	if !t.IsActive() {
+		return nil, nil, tenant.ErrTenantSuspended()
 	}
-
-	// Audit: account created
-	ah.auditService.LogAccountCreated(ctx, newUser.ID, tenantEntity.ID, "oauth_"+strings.ToLower(string(provider)), ip)
-
-	// Assign role from invitation
-	ah.assignInvitationRole(ctx, newUser.ID, tenantEntity.ID, invitationRoleID)
-
-	// Accept the invitation
-	if invitationToken != "" {
-		inv, err := ah.invitationRepo.FindByToken(ctx, invitationToken)
-		if err == nil {
-			if err := inv.Accept(newUser.ID); err == nil {
-				ah.invitationRepo.Save(ctx, *inv)
-			}
-		}
-	}
-
-	return newUser, tenantEntity, nil
+	return existing, t, nil
 }
 
 func (ah *AuthHandlers) resolveScopes(ctx context.Context, userEntity *user.User) []string {
 	return ResolveScopes(ctx, ah.scopeResolver, userEntity.ID, userEntity.TenantID, userEntity.Scopes)
-}
-
-// assignInvitationRole assigns the invitation's role to the user if present
-func (ah *AuthHandlers) assignInvitationRole(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, roleID *kernel.RoleID) {
-	if roleID == nil || roleID.IsEmpty() {
-		return
-	}
-	userRole := role.UserRole{
-		UserID:     userID,
-		RoleID:     *roleID,
-		TenantID:   tenantID,
-		AssignedAt: time.Now().UTC(),
-	}
-	ah.roleRepo.AssignToUser(ctx, userRole)
 }
 
 // createSessionAndTokens creates a session, enforces max sessions, generates tokens,
@@ -769,10 +681,11 @@ func (ah *AuthHandlers) createSessionAndTokens(c *fiber.Ctx, userEntity *user.Us
 	// Generate JWT with session_id embedded
 	effectiveScopes := ah.resolveScopes(ctx, userEntity)
 	accessToken, err := ah.tokenService.GenerateAccessToken(userEntity.ID, tenantEntity.ID, map[string]any{
-		"email":      userEntity.Email,
-		"name":       userEntity.Name,
-		"scopes":     effectiveScopes,
-		"session_id": sessionID,
+		"credential_version": userEntity.CredentialVersion,
+		"email":              userEntity.Email,
+		"name":               userEntity.Name,
+		"scopes":             effectiveScopes,
+		"session_id":         sessionID,
 	})
 	if err != nil {
 		return nil, err
@@ -785,14 +698,15 @@ func (ah *AuthHandlers) createSessionAndTokens(c *fiber.Ctx, userEntity *user.Us
 
 	// Save refresh token linked to session
 	refreshToken := RefreshToken{
-		ID:        generateID(),
-		Token:     refreshTokenStr,
-		UserID:    userEntity.ID,
-		TenantID:  tenantEntity.ID,
-		SessionID: sessionID,
-		ExpiresAt: time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
-		CreatedAt: time.Now(),
-		IsRevoked: false,
+		CredentialVersion: userEntity.CredentialVersion,
+		ID:                generateID(),
+		Token:             refreshTokenStr,
+		UserID:            userEntity.ID,
+		TenantID:          tenantEntity.ID,
+		SessionID:         sessionID,
+		ExpiresAt:         time.Now().UTC().Add(ah.config.Auth.JWT.RefreshTokenTTL),
+		CreatedAt:         time.Now(),
+		IsRevoked:         false,
 	}
 	if err := ah.tokenRepo.SaveRefreshToken(ctx, refreshToken); err != nil {
 		return nil, err

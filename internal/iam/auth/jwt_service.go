@@ -7,6 +7,7 @@ import (
 	"github.com/Abraxas-365/manifesto/internal/config"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // JWTService is a JWT-based implementation of TokenService
@@ -31,12 +32,13 @@ func NewJWTServiceFromConfig(cfg *config.JWTConfig) *JWTService {
 
 // JWTClaims holds custom JWT claims
 type JWTClaims struct {
-	UserID    kernel.UserID   `json:"user_id"`
-	TenantID  kernel.TenantID `json:"tenant_id"`
-	SessionID string          `json:"session_id"`
-	Email     string          `json:"email"`
-	Name      string          `json:"name"`
-	Scopes   []string        `json:"scopes"`
+	CredentialVersion int64           `json:"credential_version"`
+	UserID            kernel.UserID   `json:"user_id"`
+	TenantID          kernel.TenantID `json:"tenant_id"`
+	SessionID         string          `json:"session_id"`
+	Email             string          `json:"email"`
+	Name              string          `json:"name"`
+	Scopes            []string        `json:"scopes"`
 	jwt.RegisteredClaims
 }
 
@@ -55,13 +57,15 @@ func (j *JWTService) GenerateAccessToken(userID kernel.UserID, tenantID kernel.T
 		scopes = []string{}
 	}
 
+	version, _ := claims["credential_version"].(int64)
 	jwtClaims := JWTClaims{
-		UserID:    userID,
-		TenantID:  tenantID,
-		SessionID: sessionID,
-		Email:     email,
-		Name:      name,
-		Scopes:    scopes,
+		CredentialVersion: version,
+		UserID:            userID,
+		TenantID:          tenantID,
+		SessionID:         sessionID,
+		Email:             email,
+		Name:              name,
+		Scopes:            scopes,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    j.issuer,
 			Subject:   userID.String(),
@@ -106,14 +110,15 @@ func (j *JWTService) ValidateAccessToken(tokenString string) (*TokenClaims, erro
 	}
 
 	return &TokenClaims{
-		UserID:    jwtClaims.UserID,
-		TenantID:  jwtClaims.TenantID,
-		SessionID: jwtClaims.SessionID,
-		Email:     jwtClaims.Email,
-		Name:      jwtClaims.Name,
-		Scopes:    jwtClaims.Scopes,
-		IssuedAt:  jwtClaims.IssuedAt.Time,
-		ExpiresAt: jwtClaims.ExpiresAt.Time,
+		CredentialVersion: jwtClaims.CredentialVersion,
+		UserID:            jwtClaims.UserID,
+		TenantID:          jwtClaims.TenantID,
+		SessionID:         jwtClaims.SessionID,
+		Email:             jwtClaims.Email,
+		Name:              jwtClaims.Name,
+		Scopes:            jwtClaims.Scopes,
+		IssuedAt:          jwtClaims.IssuedAt.Time,
+		ExpiresAt:         jwtClaims.ExpiresAt.Time,
 	}, nil
 }
 
@@ -122,6 +127,7 @@ func (j *JWTService) GenerateRefreshToken(userID kernel.UserID) (string, error) 
 	now := time.Now()
 
 	claims := jwt.RegisteredClaims{
+		ID:        uuid.NewString(),
 		Issuer:    j.issuer,
 		Subject:   userID.String(),
 		Audience:  j.audience,

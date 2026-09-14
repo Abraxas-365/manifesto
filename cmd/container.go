@@ -135,7 +135,7 @@ func (c *Container) initModules() {
 		Redis:              c.Redis,
 		Cfg:                c.Config,
 		OTPNotifier:        &consoleOTPNotifier{},
-		InvitationNotifier: &consoleInvitationNotifier{},
+		InvitationNotifier: &consoleInvitationNotifier{development: c.Config.IsDevelopment()},
 	})
 }
 
@@ -196,9 +196,12 @@ func (n *consoleOTPNotifier) SendOTP(_ context.Context, contact string, code str
 	return nil
 }
 
-type consoleInvitationNotifier struct{}
+type consoleInvitationNotifier struct{ development bool }
 
 func (n *consoleInvitationNotifier) SendInvitation(_ context.Context, email string, token string, tenantID kernel.TenantID, invitedBy kernel.UserID) error {
-	logx.Infof("📧 [Invitation] Sending invitation to %s (tenant: %s, by: %s)", email, tenantID, invitedBy)
+	if !n.development {
+		return fmt.Errorf("configure an invitation email notifier before sending invitations outside development")
+	}
+	logx.Infof("📧 [DEV invitation] email=%s tenant=%s by=%s invitation_token=%s", email, tenantID, invitedBy, token)
 	return nil
 }
