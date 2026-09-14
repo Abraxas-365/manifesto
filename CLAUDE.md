@@ -308,13 +308,13 @@ CRUD: create roles, assign/unassign to users, list user roles and effective scop
 
 ### Unified Auth Middleware
 
-`auth.UnifiedAuthMiddleware` handles both JWT and API key authentication:
-1. Checks `Authorization: Bearer <jwt>` header first
-2. Falls back to `X-API-Key: <key>` header
-3. Resolves effective scopes (direct + role scopes)
-4. Injects `kernel.AuthContext` into Fiber context
+`auth.UnifiedAuthMiddleware` exposes two explicit policies:
+- `Authenticate()` accepts API keys or JWTs and retains their scopes for resource authorization. Recognized API-key credentials take precedence; otherwise JWT authentication uses a nonempty Bearer header, then the configured access-token cookie.
+- `AuthenticateUserJWT()` protects `/api/v1/auth/me`, `/logout`, `/logout/all`, and `/sessions`. It accepts only JWT credentials and supplies user, tenant, and session IDs without scope authority. A separate valid JWT cookie can authenticate even when an API-key header is present.
 
-Use `middleware.RequireScope(iamscopes.ScopeXxx)` on route groups for authorization.
+Both paths share JWT validation and server-side session checks. Session-bound JWTs require an active session belonging to the same user and tenant; tokens without session IDs retain their existing support. Invalid Bearer credentials never fall back to cookies.
+
+`AuthHandlers.RegisterRoutes(router, middleware)` attaches session authentication explicitly; handlers do not parse tokens. The middleware constructor receives the configured cookie name. Use `middleware.RequireScope(iamscopes.ScopeXxx)` after `Authenticate()` for resource authorization.
 
 ### API Keys
 

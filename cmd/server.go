@@ -138,8 +138,8 @@ func registerRoutes(app *fiber.App, container *Container) {
 
 	api := app.Group("/api/v1")
 
-	// Auth routes (public)
-	container.IAM.OAuthHandlers.RegisterRoutes(api)
+	// Public login/refresh routes and explicitly authenticated user/session routes
+	container.IAM.OAuthHandlers.RegisterRoutes(api, container.IAM.UnifiedAuthMiddleware)
 	container.IAM.PasswordlessHandlers.RegisterRoutes(api)
 
 	// Scope catalog (read-only, authenticated)
