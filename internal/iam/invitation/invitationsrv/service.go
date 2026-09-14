@@ -7,6 +7,8 @@ import (
 
 	"github.com/Abraxas-365/manifesto/internal/config"
 	"github.com/Abraxas-365/manifesto/internal/errx"
+	"github.com/Abraxas-365/manifesto/internal/iam"
+	"github.com/Abraxas-365/manifesto/internal/iam/authz"
 	"github.com/Abraxas-365/manifesto/internal/iam/invitation"
 	"github.com/Abraxas-365/manifesto/internal/iam/role"
 	"github.com/Abraxas-365/manifesto/internal/iam/scopes"
@@ -46,7 +48,14 @@ func NewInvitationService(
 }
 
 // CreateInvitation creates a new invitation
-func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kernel.TenantID, invitedBy kernel.UserID, req invitation.CreateInvitationRequest) (*invitation.Invitation, error) {
+func (s *InvitationService) CreateInvitation(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID, invitedBy kernel.UserID, req invitation.CreateInvitationRequest) (*invitation.Invitation, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeInvitationsWrite); err != nil {
+		return nil, err
+	}
+	if id, ok := authCtx.Actor.UserID(); !ok || id != invitedBy {
+		return nil, iam.ErrAccessDenied()
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -68,7 +77,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 		return nil, user.ErrUserNotFound()
 	}
 
-	// Note: scope authorization is enforced by the API middleware (invitations:write)
+	// Tenant and operation authority were checked at service entry.
 
 	// Existing pending/active members may receive a fresh invitation to finish
 	// onboarding or link another authentication method after proving ownership.
@@ -95,7 +104,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 		if err != nil {
 			return nil, err
 		}
-		if err := s.validateScopes(r.Scopes); err != nil {
+		if err := s.validateScopes(r.Scopes, authCtx.Scopes); err != nil {
 			return nil, err
 		}
 	}
@@ -108,7 +117,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 
 	// Validate scopes
 	if len(resolvedScopes) > 0 || req.RoleID == nil || req.RoleID.IsEmpty() {
-		if err := s.validateScopes(resolvedScopes); err != nil {
+		if err := s.validateScopes(resolvedScopes, authCtx.Scopes); err != nil {
 			return nil, err
 		}
 	}
@@ -156,7 +165,11 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, tenantID kerne
 }
 
 // ResendInvitation retries delivery without creating or accepting an invitation.
-func (s *InvitationService) ResendInvitation(ctx context.Context, id kernel.InvitationID, tenantID kernel.TenantID) error {
+func (s *InvitationService) ResendInvitation(ctx context.Context, authCtx *kernel.AuthContext, id kernel.InvitationID, tenantID kernel.TenantID) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeInvitationsWrite); err != nil {
+		return err
+	}
+
 	inv, err := s.invitationRepo.FindByID(ctx, id)
 	if err != nil {
 		return err
@@ -184,7 +197,11 @@ func (s *InvitationService) ResendInvitation(ctx context.Context, id kernel.Invi
 }
 
 // GetInvitationByID gets an invitation by ID
-func (s *InvitationService) GetInvitationByID(ctx context.Context, invitationID kernel.InvitationID, tenantID kernel.TenantID) (*invitation.InvitationResponse, error) {
+func (s *InvitationService) GetInvitationByID(ctx context.Context, authCtx *kernel.AuthContext, invitationID kernel.InvitationID, tenantID kernel.TenantID) (*invitation.InvitationResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeInvitationsRead); err != nil {
+		return nil, err
+	}
+
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return nil, invitation.ErrInvitationNotFound()
@@ -253,7 +270,11 @@ func (s *InvitationService) ValidateInvitationToken(ctx context.Context, token s
 }
 
 // GetTenantInvitations gets all invitations for a tenant
-func (s *InvitationService) GetTenantInvitations(ctx context.Context, tenantID kernel.TenantID) (*invitation.InvitationListResponse, error) {
+func (s *InvitationService) GetTenantInvitations(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) (*invitation.InvitationListResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeInvitationsRead); err != nil {
+		return nil, err
+	}
+
 	// Check that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -277,7 +298,11 @@ func (s *InvitationService) GetTenantInvitations(ctx context.Context, tenantID k
 }
 
 // GetPendingInvitations gets pending invitations for a tenant
-func (s *InvitationService) GetPendingInvitations(ctx context.Context, tenantID kernel.TenantID) (*invitation.InvitationListResponse, error) {
+func (s *InvitationService) GetPendingInvitations(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) (*invitation.InvitationListResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeInvitationsRead); err != nil {
+		return nil, err
+	}
+
 	// Check that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -301,7 +326,11 @@ func (s *InvitationService) GetPendingInvitations(ctx context.Context, tenantID 
 }
 
 // RevokeInvitation revokes an invitation
-func (s *InvitationService) RevokeInvitation(ctx context.Context, invitationID kernel.InvitationID, tenantID kernel.TenantID) error {
+func (s *InvitationService) RevokeInvitation(ctx context.Context, authCtx *kernel.AuthContext, invitationID kernel.InvitationID, tenantID kernel.TenantID) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeInvitationsRevoke); err != nil {
+		return err
+	}
+
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return invitation.ErrInvitationNotFound()
@@ -322,7 +351,11 @@ func (s *InvitationService) RevokeInvitation(ctx context.Context, invitationID k
 }
 
 // DeleteInvitation deletes an invitation
-func (s *InvitationService) DeleteInvitation(ctx context.Context, invitationID kernel.InvitationID, tenantID kernel.TenantID) error {
+func (s *InvitationService) DeleteInvitation(ctx context.Context, authCtx *kernel.AuthContext, invitationID kernel.InvitationID, tenantID kernel.TenantID) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeInvitationsDelete); err != nil {
+		return err
+	}
+
 	inv, err := s.invitationRepo.FindByID(ctx, invitationID)
 	if err != nil {
 		return invitation.ErrInvitationNotFound()
@@ -375,7 +408,7 @@ func (s *InvitationService) resolveScopes(req invitation.CreateInvitationRequest
 }
 
 // validateScopes validates that the scopes are valid
-func (s *InvitationService) validateScopes(scopesList []string) error {
+func (s *InvitationService) validateScopes(scopesList []string, callerScopes []string) error {
 	if len(scopesList) == 0 {
 		return invitation.ErrInvalidScopes().WithDetail("reason", "at least one scope is required")
 	}
@@ -392,6 +425,12 @@ func (s *InvitationService) validateScopes(scopesList []string) error {
 		return invitation.ErrInvalidScopes().
 			WithDetail("invalid_scopes", invalidScopes).
 			WithDetail("hint", "Use GET /scopes to see valid scopes")
+	}
+
+	for _, scope := range scopesList {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return iam.ErrAccessDenied().WithDetail("scope", scope)
+		}
 	}
 
 	return nil

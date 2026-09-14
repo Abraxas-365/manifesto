@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
+	"github.com/Abraxas-365/manifesto/internal/iam/authz"
 	"github.com/Abraxas-365/manifesto/internal/iam/role"
 	"github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
@@ -34,10 +35,14 @@ func NewRoleService(
 
 func (s *RoleService) CreateRole(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	tenantID kernel.TenantID,
 	req role.CreateRoleRequest,
-	callerScopes []string,
 ) (*role.Role, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesWrite); err != nil {
+		return nil, err
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -59,7 +64,7 @@ func (s *RoleService) CreateRole(
 		return nil, role.ErrRoleAlreadyExists().WithDetail("name", req.Name)
 	}
 
-	if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
+	if err := s.validateScopes(req.Scopes, authCtx.Scopes); err != nil {
 		return nil, err
 	}
 
@@ -82,9 +87,14 @@ func (s *RoleService) CreateRole(
 
 func (s *RoleService) GetRoleByID(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	roleID kernel.RoleID,
 	tenantID kernel.TenantID,
 ) (*role.RoleDTO, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesRead); err != nil {
+		return nil, err
+	}
+
 	r, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
 	if err != nil {
 		return nil, role.ErrRoleNotFound()
@@ -95,8 +105,13 @@ func (s *RoleService) GetRoleByID(
 
 func (s *RoleService) GetTenantRoles(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	tenantID kernel.TenantID,
 ) (*role.RoleListResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesRead); err != nil {
+		return nil, err
+	}
+
 	roles, err := s.roleRepo.FindByTenant(ctx, tenantID)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to get roles", errx.TypeInternal)
@@ -115,11 +130,15 @@ func (s *RoleService) GetTenantRoles(
 
 func (s *RoleService) UpdateRole(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	roleID kernel.RoleID,
 	tenantID kernel.TenantID,
 	req role.UpdateRoleRequest,
-	callerScopes []string,
 ) (*role.RoleDTO, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesWrite); err != nil {
+		return nil, err
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -144,7 +163,7 @@ func (s *RoleService) UpdateRole(
 		r.Description = *req.Description
 	}
 	if req.Scopes != nil {
-		if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
+		if err := s.validateScopes(req.Scopes, authCtx.Scopes); err != nil {
 			return nil, err
 		}
 		r.SetScopes(req.Scopes)
@@ -162,9 +181,14 @@ func (s *RoleService) UpdateRole(
 
 func (s *RoleService) DeleteRole(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	roleID kernel.RoleID,
 	tenantID kernel.TenantID,
 ) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesDelete); err != nil {
+		return err
+	}
+
 	_, err := s.roleRepo.FindByID(ctx, roleID, tenantID)
 	if err != nil {
 		return role.ErrRoleNotFound()
@@ -176,10 +200,15 @@ func (s *RoleService) DeleteRole(
 // AssignRoleToUser assigns a role to a user
 func (s *RoleService) AssignRoleToUser(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	roleID kernel.RoleID,
 	userID kernel.UserID,
 	tenantID kernel.TenantID,
 ) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesAssign); err != nil {
+		return err
+	}
+
 	req := role.AssignRoleRequest{UserID: userID}
 	if err := req.Validate(); err != nil {
 		return err
@@ -193,6 +222,10 @@ func (s *RoleService) AssignRoleToUser(
 	if scopes.ContainsPlatformScope(r.Scopes) {
 		return role.ErrRoleInvalidScopes().
 			WithDetail("reason", "platform scopes are not available in tenant IAM")
+	}
+
+	if err := s.validateScopes(r.Scopes, authCtx.Scopes); err != nil {
+		return err
 	}
 
 	// Verify user exists
@@ -214,19 +247,29 @@ func (s *RoleService) AssignRoleToUser(
 // UnassignRoleFromUser removes a role from a user
 func (s *RoleService) UnassignRoleFromUser(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	roleID kernel.RoleID,
 	userID kernel.UserID,
 	tenantID kernel.TenantID,
 ) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesAssign); err != nil {
+		return err
+	}
+
 	return s.roleRepo.UnassignFromUser(ctx, userID, roleID, tenantID)
 }
 
 // GetUserRoles returns all roles assigned to a user with effective scopes
 func (s *RoleService) GetUserRoles(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	userID kernel.UserID,
 	tenantID kernel.TenantID,
 ) (*role.UserRolesResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeRolesRead); err != nil {
+		return nil, err
+	}
+
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
@@ -319,6 +362,12 @@ func (s *RoleService) validateScopes(scopesList []string, callerScopes []string)
 		return role.ErrRoleInvalidScopes().
 			WithDetail("invalid_scopes", invalidScopes).
 			WithDetail("hint", "Use scopes.GetAllScopes() to see valid options")
+	}
+
+	for _, scope := range scopesList {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return role.ErrRoleInvalidScopes().WithDetail("scope", scope)
+		}
 	}
 
 	return nil

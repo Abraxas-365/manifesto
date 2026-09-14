@@ -64,6 +64,12 @@ Separate responsibilities:
 
 Do not invent transport DTOs for unrelated low-level utilities merely to make everything expose `Validate()`.
 
+## Authorization at the service boundary
+
+Customer IAM services accept `*kernel.AuthContext` explicitly and use `authz.Require` before repository work. The helper checks identity, exact tenant ownership, and a scope constant; `*` never skips ownership. Grant coverage and actor-kind restrictions remain separate service rules. Middleware rejects unauthorized HTTP requests early, while tenant predicates constrain persistence.
+
+`module services → iam/authz → kernel + IAM errors` keeps this policy independent of authentication adapters, HTTP, and databases. Do not hide required authority in ambient context values or accept it from request bodies. Trusted authentication/bootstrap paths remain separate. See [ADR 005](decisions/005-explicit-service-authorization.md).
+
 ## Errors are part of the contract
 
 Declare stable domain error codes through `errx.Registry`. Return domain errors from services and translate infrastructure errors at the adapter boundary. A missing SQL row should become a domain not-found error, not escape as `sql.ErrNoRows`.

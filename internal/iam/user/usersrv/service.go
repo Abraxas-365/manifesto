@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
+	"github.com/Abraxas-365/manifesto/internal/iam/authz"
 	"github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
@@ -33,7 +34,11 @@ func NewUserService(
 }
 
 // CreateUser creates a new user
-func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest) (*user.User, error) {
+func (s *UserService) CreateUser(ctx context.Context, authCtx *kernel.AuthContext, req user.CreateUserRequest) (*user.User, error) {
+	if err := authz.Require(authCtx, req.TenantID, scopes.ScopeUsersWrite); err != nil {
+		return nil, err
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -69,7 +74,7 @@ func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest
 	}
 
 	// Validate scopes
-	if err := s.validateScopes(scopes, nil); err != nil {
+	if err := s.validateScopes(scopes, authCtx.Scopes); err != nil {
 		return nil, err
 	}
 
@@ -102,7 +107,11 @@ func (s *UserService) CreateUser(ctx context.Context, req user.CreateUserRequest
 }
 
 // GetUserByID gets a user by ID
-func (s *UserService) GetUserByID(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) (*user.UserResponse, error) {
+func (s *UserService) GetUserByID(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID) (*user.UserResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersRead); err != nil {
+		return nil, err
+	}
+
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
@@ -114,7 +123,11 @@ func (s *UserService) GetUserByID(ctx context.Context, userID kernel.UserID, ten
 }
 
 // GetUserByEmail gets a user by email
-func (s *UserService) GetUserByEmail(ctx context.Context, email string, tenantID kernel.TenantID) (*user.UserResponse, error) {
+func (s *UserService) GetUserByEmail(ctx context.Context, authCtx *kernel.AuthContext, email string, tenantID kernel.TenantID) (*user.UserResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersRead); err != nil {
+		return nil, err
+	}
+
 	userEntity, err := s.userRepo.FindByEmail(ctx, email, tenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
@@ -126,7 +139,11 @@ func (s *UserService) GetUserByEmail(ctx context.Context, email string, tenantID
 }
 
 // GetUsersByTenant gets all users for a tenant
-func (s *UserService) GetUsersByTenant(ctx context.Context, tenantID kernel.TenantID) (*user.UserListResponse, error) {
+func (s *UserService) GetUsersByTenant(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) (*user.UserListResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersRead); err != nil {
+		return nil, err
+	}
+
 	users, err := s.userRepo.FindByTenant(ctx, tenantID)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to get users by tenant", errx.TypeInternal)
@@ -146,7 +163,16 @@ func (s *UserService) GetUsersByTenant(ctx context.Context, tenantID kernel.Tena
 }
 
 // UpdateUser updates a user
-func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req user.UpdateUserRequest) (*user.User, error) {
+func (s *UserService) UpdateUser(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, req user.UpdateUserRequest) (*user.User, error) {
+	if err := authz.Require(authCtx, req.TenantID, scopes.ScopeUsersWrite); err != nil {
+		return nil, err
+	}
+	if req.Scopes != nil {
+		if err := authz.Require(authCtx, req.TenantID, scopes.ScopeScopesWrite); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -163,7 +189,7 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 	// Update scopes if provided
 	if req.Scopes != nil {
 		if len(req.Scopes) > 0 {
-			if err := s.validateScopes(req.Scopes, nil); err != nil {
+			if err := s.validateScopes(req.Scopes, authCtx.Scopes); err != nil {
 				return nil, err
 			}
 		}
@@ -181,7 +207,11 @@ func (s *UserService) UpdateUser(ctx context.Context, userID kernel.UserID, req 
 }
 
 // ReinstateUser restores a suspended, verified member, never a pending signup.
-func (s *UserService) ReinstateUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
+func (s *UserService) ReinstateUser(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersWrite); err != nil {
+		return err
+	}
+
 	u, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return err
@@ -195,7 +225,11 @@ func (s *UserService) ReinstateUser(ctx context.Context, userID kernel.UserID, t
 }
 
 // SuspendUser suspends a user
-func (s *UserService) SuspendUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, reason string) error {
+func (s *UserService) SuspendUser(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID, reason string) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersWrite); err != nil {
+		return err
+	}
+
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return user.ErrUserNotFound()
@@ -209,7 +243,11 @@ func (s *UserService) SuspendUser(ctx context.Context, userID kernel.UserID, ten
 }
 
 // DeleteUser deletes a user
-func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) error {
+func (s *UserService) DeleteUser(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersDelete); err != nil {
+		return err
+	}
+
 	// Verify that the user exists
 	_, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
@@ -229,8 +267,11 @@ func (s *UserService) DeleteUser(ctx context.Context, userID kernel.UserID, tena
 // ============================================================================
 
 // AddScopesToUser adds scopes to a user.
-// callerScopes is retained for API compatibility; it cannot grant platform authority.
-func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string, callerScopes []string) error {
+func (s *UserService) AddScopesToUser(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeScopesAssign); err != nil {
+		return err
+	}
+
 	req := user.ChangeUserScopesRequest{Scopes: newScopes}
 	if err := req.Validate(); err != nil {
 		return err
@@ -242,7 +283,7 @@ func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID,
 	}
 
 	// Validate scopes
-	if err := s.validateScopes(newScopes, callerScopes); err != nil {
+	if err := s.validateScopes(newScopes, authCtx.Scopes); err != nil {
 		return err
 	}
 
@@ -257,7 +298,11 @@ func (s *UserService) AddScopesToUser(ctx context.Context, userID kernel.UserID,
 }
 
 // RemoveScopesFromUser removes scopes from a user
-func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, scopeList []string) error {
+func (s *UserService) RemoveScopesFromUser(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID, scopeList []string) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeScopesAssign); err != nil {
+		return err
+	}
+
 	// Revocation must also allow cleaning up legacy or retired scopes.
 	req := user.ChangeUserScopesRequest{Scopes: scopeList}
 	if err := req.Validate(); err != nil {
@@ -277,8 +322,11 @@ func (s *UserService) RemoveScopesFromUser(ctx context.Context, userID kernel.Us
 }
 
 // SetUserScopes sets the scopes for a user (replaces existing ones).
-// callerScopes is retained for API compatibility; it cannot grant platform authority.
-func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string, callerScopes []string) error {
+func (s *UserService) SetUserScopes(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID, newScopes []string) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeScopesWrite); err != nil {
+		return err
+	}
+
 	req := user.SetUserScopesRequest{Scopes: newScopes}
 	if err := req.Validate(); err != nil {
 		return err
@@ -291,7 +339,7 @@ func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, t
 
 	// An explicit empty array revokes all direct scopes, not role-derived scopes.
 	if len(newScopes) > 0 {
-		if err := s.validateScopes(newScopes, callerScopes); err != nil {
+		if err := s.validateScopes(newScopes, authCtx.Scopes); err != nil {
 			return err
 		}
 	}
@@ -301,7 +349,11 @@ func (s *UserService) SetUserScopes(ctx context.Context, userID kernel.UserID, t
 }
 
 // GetUserScopes retrieves the scopes for a user
-func (s *UserService) GetUserScopes(ctx context.Context, userID kernel.UserID, tenantID kernel.TenantID) (*user.UserScopesResponse, error) {
+func (s *UserService) GetUserScopes(ctx context.Context, authCtx *kernel.AuthContext, userID kernel.UserID, tenantID kernel.TenantID) (*user.UserScopesResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeScopesRead); err != nil {
+		return nil, err
+	}
+
 	userEntity, err := s.userRepo.FindByID(ctx, userID, tenantID)
 	if err != nil {
 		return nil, user.ErrUserNotFound()
@@ -361,6 +413,12 @@ func (s *UserService) validateScopes(scopesl []string, callerScopes []string) er
 		return user.ErrInvalidScopes().
 			WithDetail("invalid_scopes", invalidScopes).
 			WithDetail("hint", "Use GetAllAvailableScopes() to see valid scopes")
+	}
+
+	for _, scope := range scopesl {
+		if !kernel.ScopesContain(callerScopes, scope) {
+			return user.ErrInsufficientScopes().WithDetail("scope", scope)
+		}
 	}
 
 	return nil

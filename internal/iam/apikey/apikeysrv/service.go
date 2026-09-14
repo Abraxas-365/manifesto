@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/manifesto/internal/errx"
+	"github.com/Abraxas-365/manifesto/internal/iam"
 	"github.com/Abraxas-365/manifesto/internal/iam/apikey"
+	"github.com/Abraxas-365/manifesto/internal/iam/authz"
 	"github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
@@ -33,11 +35,18 @@ func NewAPIKeyService(
 
 func (s *APIKeyService) CreateAPIKey(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	tenantID kernel.TenantID,
 	creatorID kernel.UserID,
 	req apikey.CreateAPIKeyRequest,
-	callerScopes []string,
 ) (*apikey.CreateAPIKeyResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeAPIKeysWrite); err != nil {
+		return nil, err
+	}
+	if id, ok := authCtx.Actor.UserID(); !ok || id != creatorID {
+		return nil, iam.ErrAccessDenied()
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -62,7 +71,7 @@ func (s *APIKeyService) CreateAPIKey(
 		}
 	}
 
-	if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
+	if err := s.validateScopes(req.Scopes, authCtx.Scopes); err != nil {
 		return nil, err
 	}
 
@@ -112,9 +121,14 @@ func (s *APIKeyService) CreateAPIKey(
 
 func (s *APIKeyService) GetAPIKeyByID(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 ) (*apikey.APIKeyDTO, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeAPIKeysRead); err != nil {
+		return nil, err
+	}
+
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
 	if err != nil {
 		return nil, apikey.ErrAPIKeyNotFound()
@@ -126,8 +140,13 @@ func (s *APIKeyService) GetAPIKeyByID(
 
 func (s *APIKeyService) GetTenantAPIKeys(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	tenantID kernel.TenantID,
 ) (*apikey.APIKeyListResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeAPIKeysRead); err != nil {
+		return nil, err
+	}
+
 	keys, err := s.apiKeyRepo.FindByTenant(ctx, tenantID)
 	if err != nil {
 		return nil, errx.Wrap(err, "failed to get API keys", errx.TypeInternal)
@@ -146,11 +165,15 @@ func (s *APIKeyService) GetTenantAPIKeys(
 
 func (s *APIKeyService) UpdateAPIKey(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 	req apikey.UpdateAPIKeyRequest,
-	callerScopes []string,
 ) (*apikey.APIKeyDTO, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeAPIKeysWrite); err != nil {
+		return nil, err
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -166,7 +189,7 @@ func (s *APIKeyService) UpdateAPIKey(
 		key.Description = *req.Description
 	}
 	if req.Scopes != nil {
-		if err := s.validateScopes(req.Scopes, callerScopes); err != nil {
+		if err := s.validateScopes(req.Scopes, authCtx.Scopes); err != nil {
 			return nil, err
 		}
 		key.Scopes = req.Scopes
@@ -183,9 +206,14 @@ func (s *APIKeyService) UpdateAPIKey(
 }
 func (s *APIKeyService) RevokeAPIKey(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 ) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeAPIKeysRevoke); err != nil {
+		return err
+	}
+
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
 	if err != nil {
 		return apikey.ErrAPIKeyNotFound()
@@ -197,9 +225,14 @@ func (s *APIKeyService) RevokeAPIKey(
 
 func (s *APIKeyService) DeleteAPIKey(
 	ctx context.Context,
+	authCtx *kernel.AuthContext,
 	keyID kernel.APIKeyID,
 	tenantID kernel.TenantID,
 ) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeAPIKeysDelete); err != nil {
+		return err
+	}
+
 	_, err := s.apiKeyRepo.FindByID(ctx, keyID, tenantID)
 	if err != nil {
 		return apikey.ErrAPIKeyNotFound()

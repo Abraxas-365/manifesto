@@ -6,6 +6,8 @@ import (
 
 	"github.com/Abraxas-365/manifesto/internal/config"
 	"github.com/Abraxas-365/manifesto/internal/errx"
+	"github.com/Abraxas-365/manifesto/internal/iam/authz"
+	"github.com/Abraxas-365/manifesto/internal/iam/scopes"
 	"github.com/Abraxas-365/manifesto/internal/iam/tenant"
 	"github.com/Abraxas-365/manifesto/internal/iam/user"
 	"github.com/Abraxas-365/manifesto/internal/kernel"
@@ -74,7 +76,11 @@ func (s *TenantService) CreateTenant(ctx context.Context, req tenant.CreateTenan
 }
 
 // GetTenantByID retrieves a tenant by ID
-func (s *TenantService) GetTenantByID(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantResponse, error) {
+func (s *TenantService) GetTenantByID(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) (*tenant.TenantResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeTenantsRead); err != nil {
+		return nil, err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -229,7 +235,11 @@ func (s *TenantService) UpgradeTenantPlan(ctx context.Context, tenantID kernel.T
 }
 
 // GetTenantUsers retrieves all users for a tenant
-func (s *TenantService) GetTenantUsers(ctx context.Context, tenantID kernel.TenantID) ([]*user.User, error) {
+func (s *TenantService) GetTenantUsers(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) ([]*user.User, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersRead); err != nil {
+		return nil, err
+	}
+
 	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -245,7 +255,11 @@ func (s *TenantService) GetTenantUsers(ctx context.Context, tenantID kernel.Tena
 }
 
 // SetTenantConfig sets a tenant configuration
-func (s *TenantService) SetTenantConfig(ctx context.Context, tenantID kernel.TenantID, key, value string) error {
+func (s *TenantService) SetTenantConfig(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID, key, value string) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeTenantsConfig); err != nil {
+		return err
+	}
+
 	req := tenant.SetConfigRequest{Key: key, Value: value}
 	if err := req.Validate(); err != nil {
 		return err
@@ -261,7 +275,11 @@ func (s *TenantService) SetTenantConfig(ctx context.Context, tenantID kernel.Ten
 }
 
 // GetTenantConfig retrieves all tenant configurations
-func (s *TenantService) GetTenantConfig(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantConfigResponse, error) {
+func (s *TenantService) GetTenantConfig(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) (*tenant.TenantConfigResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeTenantsConfig); err != nil {
+		return nil, err
+	}
+
 	// Verify that the tenant exists
 	_, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
@@ -280,7 +298,11 @@ func (s *TenantService) GetTenantConfig(ctx context.Context, tenantID kernel.Ten
 }
 
 // DeleteTenantConfig deletes a tenant configuration
-func (s *TenantService) DeleteTenantConfig(ctx context.Context, tenantID kernel.TenantID, key string) error {
+func (s *TenantService) DeleteTenantConfig(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID, key string) error {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeTenantsConfig); err != nil {
+		return err
+	}
+
 	req := tenant.DeleteConfigRequest{Key: key}
 	if err := req.Validate(); err != nil {
 		return err
@@ -296,7 +318,11 @@ func (s *TenantService) DeleteTenantConfig(ctx context.Context, tenantID kernel.
 }
 
 // GetTenantStats retrieves tenant statistics
-func (s *TenantService) GetTenantStats(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantStatsResponse, error) {
+func (s *TenantService) GetTenantStats(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) (*tenant.TenantStatsResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeTenantsRead); err != nil {
+		return nil, err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()
@@ -346,7 +372,11 @@ func (s *TenantService) GetTenantStats(ctx context.Context, tenantID kernel.Tena
 }
 
 // GetTenantUsage retrieves tenant usage information
-func (s *TenantService) GetTenantUsage(ctx context.Context, tenantID kernel.TenantID) (*tenant.TenantUsageResponse, error) {
+func (s *TenantService) GetTenantUsage(ctx context.Context, authCtx *kernel.AuthContext, tenantID kernel.TenantID) (*tenant.TenantUsageResponse, error) {
+	if err := authz.Require(authCtx, tenantID, scopes.ScopeTenantsRead); err != nil {
+		return nil, err
+	}
+
 	tenantEntity, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return nil, tenant.ErrTenantNotFound()

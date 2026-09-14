@@ -9,7 +9,7 @@ Customer IAM manages permissions inside an authenticated tenant. A scope answers
 - `*` is full application authority within the caller's tenant, not cross-tenant authority.
 - `platform:` scopes are rejected by customer grant validation and scope matching, including legacy stored values.
 - Customer routes expose `/tenants/me`, not cross-tenant `/admin/tenants` operations.
-- Internal tenant-management services and unregistered handlers still exist. Their existence is not authorization to expose them.
+- Trusted internal tenant-management services still exist, but their old unregistered operator HTTP handlers have been removed. Internal methods are not authorization to expose them.
 
 A future operator application must have its own authentication boundary. It is not implemented here.
 
@@ -32,16 +32,38 @@ An API key acts as itself, not as the person who created it. Suspending a creato
 
 A user's effective scopes combine direct grants and assigned roles. The scope resolver is used during token issuance/refresh; **JWT resource requests currently use the scopes embedded in the token**, not freshly resolved role permissions. Removing a role or grant therefore may not affect an existing access token until expiry.
 
-API-key creation and scope replacement require every requested scope to be covered by the caller's authenticated scopes:
+API-key grants, direct user grants, role creation/update/assignment, and invitation direct/role grants require every requested scope to be covered by the caller's authenticated scopes:
 
-| Caller holds | Requested key scope | Allowed |
+| Caller holds | Requested grant | Allowed |
 | --- | --- | --- |
 | `users:*` | `users:read` | Yes |
 | `users:read` | `users:*` | No |
 | `api_keys:write` | `*` | No |
 | `*` | `platform:tenants:read` | No |
 
-The subset check is specific to API-key grants. It is not a universal permission-delegation policy for roles, direct user grants, and invitations. Those management permissions are privileged and must be assigned accordingly.
+These checks run in services as well as route middleware. Removing grants does not require holding them, so retired permissions can still be cleaned up. The helper does not make grant checks transactional; existing concurrent role/invitation changes need separate persistence guarantees.
+
+## Service authorization
+
+[`authz.Require`](../internal/iam/authz/require.go) checks a trusted context's identity, target tenant, and required scope. Customer user, role, API-key, invitation, and tenant self-service operations call it before repository access. Missing/invalid identity returns `IAM_UNAUTHORIZED`; wrong tenant or missing permission returns `IAM_ACCESS_DENIED`. An empty required scope is rejected even for `*`.
+
+```go
+func (s *UserService) GetUserByID(
+    ctx context.Context,
+    authCtx *kernel.AuthContext,
+    userID kernel.UserID,
+    tenantID kernel.TenantID,
+) (*user.UserResponse, error) {
+    if err := authz.Require(authCtx, tenantID, scopes.ScopeUsersRead); err != nil {
+        return nil, err
+    }
+    // Continue with tenant-filtered repository access.
+}
+```
+
+Handlers pass the authentication middleware's context explicitly. Separate `callerScopes` arguments were removed from customer service APIs; grant checks derive authority from `authCtx.Scopes`. Creator/inviter IDs must match its user actor. Scope-bearing profile updates require both `users:write` and `scopes:write`.
+
+Do not bind `AuthContext` from request JSON. Retain route middleware and tenant-filtered queries. Authentication/key validation, effective-scope resolution, public token inspection, verified onboarding, internal provisioning, and scheduled cleanup are distinct trusted entry points, not customer methods with fabricated wildcard actors. See [ADR 005](decisions/005-explicit-service-authorization.md) for the boundary, breaking service-signature change, and limitations. No database migration is needed.
 
 ## Authentication policies
 

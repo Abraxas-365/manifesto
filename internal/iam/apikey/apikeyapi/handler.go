@@ -42,7 +42,7 @@ func (h *APIKeyHandlers) CreateAPIKey(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	result, err := h.service.CreateAPIKey(c.Context(), actor.TenantID, userID, req, actor.Scopes)
+	result, err := h.service.CreateAPIKey(c.Context(), actor, actor.TenantID, userID, req)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (h *APIKeyHandlers) ListTenantAPIKeys(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetTenantAPIKeys(c.Context(), actor.TenantID)
+	result, err := h.service.GetTenantAPIKeys(c.Context(), actor, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (h *APIKeyHandlers) GetAPIKey(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetAPIKeyByID(c.Context(), keyID, actor.TenantID)
+	result, err := h.service.GetAPIKeyByID(c.Context(), actor, keyID, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (h *APIKeyHandlers) UpdateAPIKey(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	result, err := h.service.UpdateAPIKey(c.Context(), keyID, actor.TenantID, req, actor.Scopes)
+	result, err := h.service.UpdateAPIKey(c.Context(), actor, keyID, actor.TenantID, req)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (h *APIKeyHandlers) DeleteAPIKey(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.DeleteAPIKey(c.Context(), keyID, actor.TenantID); err != nil {
+	if err := h.service.DeleteAPIKey(c.Context(), actor, keyID, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -111,7 +111,7 @@ func (h *APIKeyHandlers) RevokeAPIKey(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.RevokeAPIKey(c.Context(), keyID, actor.TenantID); err != nil {
+	if err := h.service.RevokeAPIKey(c.Context(), actor, keyID, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)

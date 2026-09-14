@@ -1,6 +1,6 @@
 # 003 — Tenant identity and lifecycle
 
-**Status:** Accepted; operator application intentionally outside scope
+**Status:** Accepted; operator application intentionally outside scope. Delegation-policy limitations below are superseded by [005](005-explicit-service-authorization.md).
 
 ## Context
 

@@ -10,6 +10,7 @@ These records capture the rationale behind Manifesto's current direction. They a
 | [002 — Explicit module boundaries](002-explicit-module-boundaries.md) | Ports and adapters, constructors, typed IDs, validation and error contracts |
 | [003 — Tenant identity and lifecycle](003-tenant-identity-and-lifecycle.md) | Separate tenant authority from platform operations; model actors and workflows explicitly |
 | [004 — Persistence and credential invalidation](004-persistence-and-credential-invalidation.md) | Explicit transactions and persistent credential generations |
+| [005 — Explicit service authorization](005-explicit-service-authorization.md) | Trusted contexts, tenant/scope checks, and grant coverage inside customer services |
 
 ## Adding a decision
 

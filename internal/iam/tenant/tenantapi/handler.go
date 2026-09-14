@@ -10,166 +10,6 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Platform Admin Handlers — cross-tenant operations for platform operators
-// ---------------------------------------------------------------------------
-
-type PlatformTenantHandlers struct {
-	service *tenantsrv.TenantService
-}
-
-func NewPlatformTenantHandlers(service *tenantsrv.TenantService) *PlatformTenantHandlers {
-	return &PlatformTenantHandlers{service: service}
-}
-
-// Cross-tenant handlers are retained for a future operator app. They are not
-// wired into customer IAM and deliberately provide no tenant-auth route registrar.
-
-func (h *PlatformTenantHandlers) CreateTenant(c *fiber.Ctx) error {
-	req, err := kernel.BindAndValidate[tenant.CreateTenantRequest](c)
-	if err != nil {
-		return err
-	}
-
-	t, err := h.service.CreateTenant(c.Context(), req)
-	if err != nil {
-		return err
-	}
-	return c.Status(fiber.StatusCreated).JSON(t.ToDTO())
-}
-
-func (h *PlatformTenantHandlers) GetAllTenants(c *fiber.Ctx) error {
-	response, err := h.service.GetAllTenants(c.Context())
-	if err != nil {
-		return err
-	}
-	return c.JSON(response.ToDTO())
-}
-
-func (h *PlatformTenantHandlers) GetTenant(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	response, err := h.service.GetTenantByID(c.Context(), tenantID)
-	if err != nil {
-		return err
-	}
-	return c.JSON(response.ToDTO())
-}
-
-func (h *PlatformTenantHandlers) UpdateTenant(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	req, err := kernel.BindAndValidate[tenant.UpdateTenantRequest](c)
-	if err != nil {
-		return err
-	}
-
-	updated, err := h.service.UpdateTenant(c.Context(), tenantID, req)
-	if err != nil {
-		return err
-	}
-	return c.JSON(updated.ToDTO())
-}
-
-func (h *PlatformTenantHandlers) DeleteTenant(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	if err := h.service.DeleteTenant(c.Context(), tenantID); err != nil {
-		return err
-	}
-	return c.JSON(fiber.Map{"message": "Tenant deleted successfully"})
-}
-
-func (h *PlatformTenantHandlers) SuspendTenant(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	req, err := kernel.BindAndValidate[tenant.SuspendTenantRequest](c)
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.SuspendTenant(c.Context(), tenantID, req.Reason); err != nil {
-		return err
-	}
-	return c.JSON(fiber.Map{"message": "Tenant suspended successfully"})
-}
-
-func (h *PlatformTenantHandlers) ActivateTenant(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	if err := h.service.ActivateTenant(c.Context(), tenantID); err != nil {
-		return err
-	}
-	return c.JSON(fiber.Map{"message": "Tenant activated successfully"})
-}
-
-func (h *PlatformTenantHandlers) UpgradePlan(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	req, err := kernel.BindAndValidate[tenant.UpgradePlanRequest](c)
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.UpgradeTenantPlan(c.Context(), tenantID, req.NewPlan); err != nil {
-		return err
-	}
-	return c.JSON(fiber.Map{"message": "Plan upgraded successfully"})
-}
-
-func (h *PlatformTenantHandlers) GetTenantStats(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	stats, err := h.service.GetTenantStats(c.Context(), tenantID)
-	if err != nil {
-		return err
-	}
-	return c.JSON(stats)
-}
-
-func (h *PlatformTenantHandlers) GetTenantUsage(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	usage, err := h.service.GetTenantUsage(c.Context(), tenantID)
-	if err != nil {
-		return err
-	}
-	return c.JSON(usage)
-}
-
-func (h *PlatformTenantHandlers) GetTenantUsers(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	users, err := h.service.GetTenantUsers(c.Context(), tenantID)
-	if err != nil {
-		return err
-	}
-	return c.JSON(fiber.Map{"users": users, "total": len(users)})
-}
-
-func (h *PlatformTenantHandlers) GetTenantConfig(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	config, err := h.service.GetTenantConfig(c.Context(), tenantID)
-	if err != nil {
-		return err
-	}
-	return c.JSON(config)
-}
-
-func (h *PlatformTenantHandlers) SetTenantConfig(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	req, err := kernel.BindAndValidate[tenant.SetConfigRequest](c)
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.SetTenantConfig(c.Context(), tenantID, req.Key, req.Value); err != nil {
-		return err
-	}
-	return c.JSON(fiber.Map{"message": "Config saved successfully"})
-}
-
-func (h *PlatformTenantHandlers) DeleteTenantConfig(c *fiber.Ctx) error {
-	tenantID := kernel.NewTenantID(c.Params("id"))
-	key := c.Params("key")
-
-	if err := h.service.DeleteTenantConfig(c.Context(), tenantID, key); err != nil {
-		return err
-	}
-	return c.JSON(fiber.Map{"message": "Config deleted successfully"})
-}
-
-// ---------------------------------------------------------------------------
 // Tenant Self-Service Handlers — tenant owners manage their own tenant
 // Uses TenantID from the JWT, no :id parameter.
 // ---------------------------------------------------------------------------
@@ -199,7 +39,7 @@ func (h *TenantHandlers) GetMyTenant(c *fiber.Ctx) error {
 		return fiber.ErrUnauthorized
 	}
 
-	response, err := h.service.GetTenantByID(c.Context(), authContext.TenantID)
+	response, err := h.service.GetTenantByID(c.Context(), authContext, authContext.TenantID)
 	if err != nil {
 		return err
 	}
@@ -212,7 +52,7 @@ func (h *TenantHandlers) GetMyTenantStats(c *fiber.Ctx) error {
 		return fiber.ErrUnauthorized
 	}
 
-	stats, err := h.service.GetTenantStats(c.Context(), authContext.TenantID)
+	stats, err := h.service.GetTenantStats(c.Context(), authContext, authContext.TenantID)
 	if err != nil {
 		return err
 	}
@@ -225,7 +65,7 @@ func (h *TenantHandlers) GetMyTenantUsage(c *fiber.Ctx) error {
 		return fiber.ErrUnauthorized
 	}
 
-	usage, err := h.service.GetTenantUsage(c.Context(), authContext.TenantID)
+	usage, err := h.service.GetTenantUsage(c.Context(), authContext, authContext.TenantID)
 	if err != nil {
 		return err
 	}
@@ -238,7 +78,7 @@ func (h *TenantHandlers) GetMyTenantConfig(c *fiber.Ctx) error {
 		return fiber.ErrUnauthorized
 	}
 
-	config, err := h.service.GetTenantConfig(c.Context(), authContext.TenantID)
+	config, err := h.service.GetTenantConfig(c.Context(), authContext, authContext.TenantID)
 	if err != nil {
 		return err
 	}
@@ -256,7 +96,7 @@ func (h *TenantHandlers) SetMyTenantConfig(c *fiber.Ctx) error {
 		return err
 	}
 
-	if err := h.service.SetTenantConfig(c.Context(), authContext.TenantID, req.Key, req.Value); err != nil {
+	if err := h.service.SetTenantConfig(c.Context(), authContext, authContext.TenantID, req.Key, req.Value); err != nil {
 		return err
 	}
 	return c.JSON(fiber.Map{"message": "Config saved successfully"})
@@ -269,7 +109,7 @@ func (h *TenantHandlers) DeleteMyTenantConfig(c *fiber.Ctx) error {
 	}
 
 	key := c.Params("key")
-	if err := h.service.DeleteTenantConfig(c.Context(), authContext.TenantID, key); err != nil {
+	if err := h.service.DeleteTenantConfig(c.Context(), authContext, authContext.TenantID, key); err != nil {
 		return err
 	}
 	return c.JSON(fiber.Map{"message": "Config deleted successfully"})

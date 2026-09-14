@@ -37,7 +37,7 @@ func (h *UserHandlers) ListTenantUsers(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetUsersByTenant(c.Context(), actor.TenantID)
+	result, err := h.service.GetUsersByTenant(c.Context(), actor, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (h *UserHandlers) GetUser(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetUserByID(c.Context(), userID, actor.TenantID)
+	result, err := h.service.GetUserByID(c.Context(), actor, userID, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (h *UserHandlers) UpdateUser(c *fiber.Ctx) error {
 		return user.ErrInsufficientScopes()
 	}
 	req.TenantID = actor.TenantID
-	result, err := h.service.UpdateUser(c.Context(), userID, req)
+	result, err := h.service.UpdateUser(c.Context(), actor, userID, req)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (h *UserHandlers) DeleteUser(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.DeleteUser(c.Context(), userID, actor.TenantID); err != nil {
+	if err := h.service.DeleteUser(c.Context(), actor, userID, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -97,7 +97,7 @@ func (h *UserHandlers) GetUserScopes(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetUserScopes(c.Context(), userID, actor.TenantID)
+	result, err := h.service.GetUserScopes(c.Context(), actor, userID, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func (h *UserHandlers) SetUserScopes(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := h.service.SetUserScopes(c.Context(), userID, actor.TenantID, req.Scopes, actor.Scopes); err != nil {
+	if err := h.service.SetUserScopes(c.Context(), actor, userID, actor.TenantID, req.Scopes); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -130,7 +130,7 @@ func (h *UserHandlers) AddScopesToUser(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := h.service.AddScopesToUser(c.Context(), userID, actor.TenantID, req.Scopes, actor.Scopes); err != nil {
+	if err := h.service.AddScopesToUser(c.Context(), actor, userID, actor.TenantID, req.Scopes); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -146,7 +146,7 @@ func (h *UserHandlers) RemoveScopesFromUser(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := h.service.RemoveScopesFromUser(c.Context(), userID, actor.TenantID, req.Scopes); err != nil {
+	if err := h.service.RemoveScopesFromUser(c.Context(), actor, userID, actor.TenantID, req.Scopes); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -158,7 +158,7 @@ func (h *UserHandlers) SuspendUser(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.SuspendUser(c.Context(), userID, actor.TenantID, "Suspended by tenant administrator"); err != nil {
+	if err := h.service.SuspendUser(c.Context(), actor, userID, actor.TenantID, "Suspended by tenant administrator"); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -170,7 +170,7 @@ func (h *UserHandlers) ReinstateUser(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.ReinstateUser(c.Context(), userID, actor.TenantID); err != nil {
+	if err := h.service.ReinstateUser(c.Context(), actor, userID, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)

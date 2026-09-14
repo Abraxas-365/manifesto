@@ -40,7 +40,7 @@ func (h *RoleHandlers) CreateRole(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	result, err := h.service.CreateRole(c.Context(), actor.TenantID, req, actor.Scopes)
+	result, err := h.service.CreateRole(c.Context(), actor, actor.TenantID, req)
 	if err != nil {
 		return err
 	}
@@ -52,7 +52,7 @@ func (h *RoleHandlers) ListTenantRoles(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetTenantRoles(c.Context(), actor.TenantID)
+	result, err := h.service.GetTenantRoles(c.Context(), actor, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (h *RoleHandlers) GetRole(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetRoleByID(c.Context(), roleID, actor.TenantID)
+	result, err := h.service.GetRoleByID(c.Context(), actor, roleID, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (h *RoleHandlers) UpdateRole(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	result, err := h.service.UpdateRole(c.Context(), roleID, actor.TenantID, req, actor.Scopes)
+	result, err := h.service.UpdateRole(c.Context(), actor, roleID, actor.TenantID, req)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (h *RoleHandlers) DeleteRole(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.DeleteRole(c.Context(), roleID, actor.TenantID); err != nil {
+	if err := h.service.DeleteRole(c.Context(), actor, roleID, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -111,7 +111,7 @@ func (h *RoleHandlers) AssignRoleToUser(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := h.service.AssignRoleToUser(c.Context(), roleID, req.UserID, actor.TenantID); err != nil {
+	if err := h.service.AssignRoleToUser(c.Context(), actor, roleID, req.UserID, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -124,7 +124,7 @@ func (h *RoleHandlers) UnassignRoleFromUser(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.UnassignRoleFromUser(c.Context(), roleID, userID, actor.TenantID); err != nil {
+	if err := h.service.UnassignRoleFromUser(c.Context(), actor, roleID, userID, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -136,7 +136,7 @@ func (h *RoleHandlers) GetUserRoles(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetUserRoles(c.Context(), userID, actor.TenantID)
+	result, err := h.service.GetUserRoles(c.Context(), actor, userID, actor.TenantID)
 	if err != nil {
 		return err
 	}

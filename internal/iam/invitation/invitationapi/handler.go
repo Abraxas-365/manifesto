@@ -34,7 +34,7 @@ func (h *InvitationHandlers) ResendInvitation(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.ResendInvitation(c.Context(), id, actor.TenantID); err != nil {
+	if err := h.service.ResendInvitation(c.Context(), actor, id, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -53,7 +53,7 @@ func (h *InvitationHandlers) CreateInvitation(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	result, err := h.service.CreateInvitation(c.Context(), actor.TenantID, userID, req)
+	result, err := h.service.CreateInvitation(c.Context(), actor, actor.TenantID, userID, req)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (h *InvitationHandlers) ListTenantInvitations(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetTenantInvitations(c.Context(), actor.TenantID)
+	result, err := h.service.GetTenantInvitations(c.Context(), actor, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (h *InvitationHandlers) GetInvitation(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	result, err := h.service.GetInvitationByID(c.Context(), id, actor.TenantID)
+	result, err := h.service.GetInvitationByID(c.Context(), actor, id, actor.TenantID)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (h *InvitationHandlers) RevokeInvitation(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.RevokeInvitation(c.Context(), id, actor.TenantID); err != nil {
+	if err := h.service.RevokeInvitation(c.Context(), actor, id, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -103,7 +103,7 @@ func (h *InvitationHandlers) DeleteInvitation(c *fiber.Ctx) error {
 	if !ok {
 		return iam.ErrUnauthorized()
 	}
-	if err := h.service.DeleteInvitation(c.Context(), id, actor.TenantID); err != nil {
+	if err := h.service.DeleteInvitation(c.Context(), actor, id, actor.TenantID); err != nil {
 		return err
 	}
 	return c.SendStatus(fiber.StatusNoContent)
